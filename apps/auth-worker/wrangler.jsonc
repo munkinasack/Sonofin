@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sonofin-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sonofin",
+      // Use the same production D1 database ID as sonofin-smapi.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../packages/database/migrations"
+    }
+  ]
+}

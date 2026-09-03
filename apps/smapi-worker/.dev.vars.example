@@ -1,0 +1,22 @@
+ONBOARDING_URL=http://127.0.0.1:8788/onboarding
+LINK_CODE_TTL_SECONDS=600
+
+# This must exactly match the auth Worker's local encryption key so the SMAPI
+# Worker can decrypt the connections that onboarding stores. Never deploy this
+# public fixture; store the shared environment value as a secret on both
+# Workers.
+JELLYFIN_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+# Local-only 32-byte HMAC key encoded as unpadded base64url. Generate a
+# value distinct from JELLYFIN_TOKEN_ENCRYPTION_KEY for production and store it
+# with `wrangler secret put SONOS_TOKEN_SIGNING_KEY`; never deploy this fixture.
+SONOS_TOKEN_SIGNING_KEY=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA
+
+# During a signing-key rotation, temporarily set this secret to a comma-separated
+# list containing both the staged next key and current key, with no spaces or
+# empty entries. See README.md.
+# SONOS_TOKEN_FALLBACK_SIGNING_KEYS=
+
+# Local development only. Match the auth Worker when onboarding plain-HTTP
+# Jellyfin URLs. Never enable this in a deployed Worker.
+ALLOW_INSECURE_JELLYFIN_HTTP=true

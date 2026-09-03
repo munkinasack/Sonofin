@@ -1,0 +1,21 @@
+{
+  "name": "@sonofin/smapi-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@sonofin/connections": "workspace:*",
+    "@sonofin/crypto": "workspace:*",
+    "@sonofin/database": "workspace:*",
+    "@sonofin/jellyfin-client": "workspace:*",
+    "@sonofin/linking": "workspace:*",
+    "@sonofin/shared": "workspace:*",
+    "@sonofin/sonos-auth": "workspace:*",
+    "@sonofin/sonos-smapi": "workspace:*"
+  }
+}

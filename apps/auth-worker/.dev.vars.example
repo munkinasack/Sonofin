@@ -1,0 +1,10 @@
+# Local development only. This opt-in permits plain-HTTP Jellyfin URLs that
+# otherwise pass the client's target-safety checks. It does not permit localhost
+# or local hostnames, or literal private/link-local addresses. Never enable it on
+# a deployed Worker; production Jellyfin connections should always use HTTPS.
+ALLOW_INSECURE_JELLYFIN_HTTP=true
+
+# Local-only 32-byte AES key encoded as unpadded base64url. Generate one
+# high-entropy value for each real environment and store that exact value as
+# JELLYFIN_TOKEN_ENCRYPTION_KEY on both Workers; never deploy this fixture.
+JELLYFIN_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
