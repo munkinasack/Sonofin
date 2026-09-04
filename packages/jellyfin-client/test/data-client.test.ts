@@ -5,6 +5,7 @@ import {
   JellyfinClientError,
   type JellyfinClientErrorCode,
   type JellyfinDataConnection,
+  type JellyfinSearchOptions,
 } from "../src";
 
 const CONNECTION: JellyfinDataConnection = {
@@ -502,73 +503,104 @@ describe("JellyfinApiClient official request contracts", () => {
     );
   });
 
-  it("searches only music item types with a URL-encoded term and library scope", async () => {
-    const transport = scriptedFetch(
-      jsonResponse({
-        SearchHints: [
-          {
-            Id: "artist-id",
-            Name: "Artist",
-            Type: "MusicArtist",
-            IsFolder: true,
-            PrimaryImageAspectRatio: 1,
-          },
-          {
-            ItemId: "album-id",
-            Name: "Album",
-            Type: "MusicAlbum",
-            AlbumArtist: "Artist",
-          },
-          {
-            Id: "track-id",
-            Name: "Track",
-            Type: "Audio",
-            Artists: ["Artist"],
-          },
-          { Id: "playlist-id", Name: "Playlist", Type: "Playlist" },
-        ],
-        TotalRecordCount: 40,
-      }),
-    );
-    const client = new JellyfinApiClient({
-      connection: CONNECTION,
-      fetch: transport.fetch,
-    });
-
-    const result = await client.search("Björk & 100%", {
-      libraryId: "library/id",
-      startIndex: 5,
-      limit: 25,
-    });
-    expect(result.items.map((item) => item.kind)).toEqual([
+  it.each([
+    [
       "artist",
+      "MusicArtist",
+      "/Artists",
+      {
+        Id: "artist-id",
+        Name: "Artist",
+        Type: "MusicArtist",
+        IsFolder: true,
+        PrimaryImageAspectRatio: 1,
+      },
+      {
+        id: "artist-id",
+        name: "Artist",
+        kind: "artist",
+        isFolder: true,
+        primaryImageAspectRatio: 1,
+      },
+    ],
+    [
       "album",
+      "MusicAlbum",
+      "/Items",
+      {
+        Id: "album-id",
+        Name: "Album",
+        Type: "MusicAlbum",
+        AlbumArtists: [{ Id: "artist-id", Name: "Artist" }],
+      },
+      {
+        id: "album-id",
+        name: "Album",
+        kind: "album",
+        artists: [{ id: "artist-id", name: "Artist" }],
+      },
+    ],
+    [
       "track",
+      "Audio",
+      "/Items",
+      {
+        Id: "track-id",
+        Name: "Track",
+        Type: "Audio",
+        ArtistItems: [{ Id: "artist-id", Name: "Artist" }],
+      },
+      {
+        id: "track-id",
+        name: "Track",
+        kind: "track",
+        artists: [{ id: "artist-id", name: "Artist" }],
+      },
+    ],
+    [
       "playlist",
-    ]);
-    expect(result.items[0]).toMatchObject({
-      id: "artist-id",
-      isFolder: true,
-      primaryImageAspectRatio: 1,
-    });
-    expect(result.items[1]).toMatchObject({
-      id: "album-id",
-      artists: [{ name: "Artist" }],
-    });
-    expectGetRequest(transport.calls[0], "/Search/Hints", {
-      userId: "user-id",
-      startIndex: "5",
-      limit: "25",
-      parentId: "library/id",
-      searchTerm: "Björk & 100%",
-      includeItemTypes: "MusicArtist,MusicAlbum,Audio,Playlist",
-      includePeople: "false",
-      includeMedia: "true",
-      includeGenres: "false",
-      includeStudios: "false",
-      includeArtists: "true",
-    });
-  });
+      "Playlist",
+      "/Items",
+      { Id: "playlist-id", Name: "Playlist", Type: "Playlist" },
+      {
+        id: "playlist-id",
+        name: "Playlist",
+        kind: "playlist",
+      },
+    ],
+  ] as const)(
+    "searches only the %s category with a URL-encoded term and library scope",
+    async (category, itemType, pathname, item, expected) => {
+      const transport = scriptedFetch(jsonResponse(page(item)));
+      const client = new JellyfinApiClient({
+        connection: CONNECTION,
+        fetch: transport.fetch,
+      });
+
+      await expect(
+        client.search("Björk & 100%", {
+          category,
+          libraryId: "library/id",
+          startIndex: 5,
+          limit: 25,
+        }),
+      ).resolves.toEqual({
+        items: [expected],
+        startIndex: 5,
+        totalRecordCount: 40,
+      });
+      expectGetRequest(transport.calls[0], pathname, {
+        ...COMMON_PAGE_QUERY,
+        parentId: "library/id",
+        searchTerm: "Björk & 100%",
+        sortBy: "SortName",
+        sortOrder: "Ascending",
+        ...(category === "artist"
+          ? {}
+          : { includeItemTypes: itemType, recursive: "true" }),
+      });
+    },
+  );
 
   it("gets metadata for an encoded item ID and retains an unknown Jellyfin kind", async () => {
     const transport = scriptedFetch(
@@ -726,7 +758,7 @@ describe("JellyfinApiClient validation and safe failures", () => {
       client.getPlaylistTracks("playlist-id", {
         startIndex: Number.MAX_SAFE_INTEGER + 1,
       }),
-      client.search("term", { limit: Number.NaN }),
+      client.search("term", { category: "artist", limit: Number.NaN }),
       client.getAlbums({ libraryId: "" }),
       client.getAlbums({ artistId: "   " }),
     ];
@@ -749,15 +781,56 @@ describe("JellyfinApiClient validation and safe failures", () => {
       client.getPlaylistTracks("   "),
       client.getItemMetadata(malformedUnicode),
       client.getPlaybackInfo(""),
-      client.search(""),
-      client.search("   "),
-      client.search(malformedUnicode),
+      client.search("", { category: "artist" }),
+      client.search("   ", { category: "artist" }),
+      client.search(malformedUnicode, { category: "artist" }),
+      client.search("x".repeat(513), { category: "artist" }),
     ];
 
     for (const call of invalidCalls) {
       await expectErrorCode(call, "invalid_input");
     }
     expect(transport.calls).toHaveLength(0);
+  });
+
+  it("requires an allow-listed Sonofin search category before contacting Jellyfin", async () => {
+    const transport = scriptedFetch();
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+    const invalidOptions = [
+      undefined,
+      {},
+      { category: "MusicArtist" },
+      { category: "artists" },
+      { category: "constructor" },
+    ];
+
+    for (const options of invalidOptions) {
+      await expectErrorCode(
+        client.search("term", options as JellyfinSearchOptions),
+        "invalid_input",
+      );
+    }
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("rejects a search result outside the requested category", async () => {
+    const transport = scriptedFetch(
+      jsonResponse(
+        page({ Id: "album-id", Name: "Album", Type: "MusicAlbum" }),
+      ),
+    );
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+
+    await expectErrorCode(
+      client.search("term", { category: "artist" }),
+      "invalid_server_response",
+    );
   });
 
   it.each([
@@ -888,7 +961,12 @@ describe("JellyfinApiClient validation and safe failures", () => {
       (client: JellyfinApiClient) => client.getPlaylistTracks("playlist-id"),
       true,
     ],
-    ["search", (client: JellyfinApiClient) => client.search("term"), false],
+    [
+      "search",
+      (client: JellyfinApiClient) =>
+        client.search("term", { category: "artist" }),
+      false,
+    ],
     ["item metadata", (client: JellyfinApiClient) => client.getItemMetadata("item-id"), true],
     ["playback", (client: JellyfinApiClient) => client.getPlaybackInfo("item-id"), true],
   ] as const)(

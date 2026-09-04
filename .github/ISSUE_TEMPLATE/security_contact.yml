@@ -1,0 +1,25 @@
+name: Security contact request
+description: Ask the maintainer to establish a private channel without disclosing vulnerability details.
+title: "[Security contact]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public. Do not describe the vulnerability or include credentials, URLs, identifiers, request data, server responses, database contents, logs, or other sensitive information. Submit only a request for private contact.
+
+  - type: input
+    id: request
+    attributes:
+      label: Contact request
+      description: State only that you need a private channel. The maintainer can respond through your GitHub account.
+      placeholder: Please contact me privately about a potential security issue.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have not included vulnerability details, credentials, private identifiers, or other sensitive information.
+          required: true

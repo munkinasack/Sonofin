@@ -198,7 +198,7 @@ new album-track task before 7.6.
 
 **Not in scope:** playlist editing, favorites, or caching.
 
-### [ ] Task 7.7 — Category-filtered Jellyfin search contract
+### [x] Task 7.7 — Category-filtered Jellyfin search contract
 
 **Budget:** 2.5–4 hours. **Prerequisite:** 7.6.
 

@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a focused improvement that fits Sonofin's roadmap and security model.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the remaining-milestones plan before proposing work. Keep examples credential-free and do not disclose vulnerabilities here.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need or limitation should this address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe a bounded outcome, including the Sonos, Jellyfin, or Cloudflare contract it affects.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What existing behavior or smaller approach could solve the problem?
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy impact
+      description: Identify effects on credentials, identifiers, logging, networking, storage, or public deployment. Do not include sensitive details.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checks
+      options:
+        - label: I checked the roadmap and searched existing issues.
+          required: true
+        - label: I did not include credentials, private identifiers, or vulnerability details.
+          required: true

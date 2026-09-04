@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Read the security policy
+    url: https://github.com/munkinasack/Sonofin/blob/main/SECURITY.md
+    about: Never disclose vulnerability details or credentials in a public issue.

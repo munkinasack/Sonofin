@@ -29,7 +29,15 @@ export interface JellyfinAlbumPageOptions extends JellyfinLibraryPageOptions {
   readonly artistId?: string;
 }
 
-export type JellyfinSearchOptions = JellyfinLibraryPageOptions;
+export type JellyfinSearchCategory =
+  | "artist"
+  | "album"
+  | "track"
+  | "playlist";
+
+export interface JellyfinSearchOptions extends JellyfinLibraryPageOptions {
+  readonly category: JellyfinSearchCategory;
+}
 
 export interface JellyfinPage<Item> {
   readonly items: readonly Item[];
@@ -173,7 +181,7 @@ export interface JellyfinDataClient {
 
   search(
     query: string,
-    options?: JellyfinSearchOptions,
+    options: JellyfinSearchOptions,
   ): Promise<JellyfinPage<JellyfinSearchResult>>;
 
   getItemMetadata(itemId: string): Promise<JellyfinItemMetadata>;
