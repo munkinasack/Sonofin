@@ -18,6 +18,7 @@ export type {
   JellyfinPageOptions,
   JellyfinPlaybackInfo,
   JellyfinPlaylist,
+  JellyfinSearchCategory,
   JellyfinSearchOptions,
   JellyfinSearchResult,
   JellyfinServerInfo,

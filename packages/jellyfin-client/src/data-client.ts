@@ -14,6 +14,7 @@ import type {
   JellyfinPageOptions,
   JellyfinPlaybackInfo,
   JellyfinPlaylist,
+  JellyfinSearchCategory,
   JellyfinSearchOptions,
   JellyfinSearchResult,
   JellyfinServerInfo,
@@ -59,6 +60,16 @@ interface NormalizedLibraryPageOptions extends NormalizedPageOptions {
 interface NormalizedAlbumPageOptions extends NormalizedLibraryPageOptions {
   readonly artistId?: string;
 }
+
+interface NormalizedSearchOptions extends NormalizedLibraryPageOptions {
+  readonly category: JellyfinSearchCategory;
+}
+
+type JellyfinSearchItemType =
+  | "MusicArtist"
+  | "MusicAlbum"
+  | "Audio"
+  | "Playlist";
 
 interface NormalizedItemBase {
   readonly id: string;
@@ -252,7 +263,7 @@ export class JellyfinApiClient implements JellyfinDataClient {
 
   async search(
     queryText: string,
-    options: JellyfinSearchOptions = {},
+    options: JellyfinSearchOptions,
   ): Promise<JellyfinPage<JellyfinSearchResult>> {
     if (
       !isCharacterLength(queryText, 1, MAX_SEARCH_QUERY_CHARACTERS) ||
@@ -260,22 +271,24 @@ export class JellyfinApiClient implements JellyfinDataClient {
     ) {
       throw new JellyfinClientError("invalid_input");
     }
-    const normalized = normalizeLibraryPageOptions(options);
-    const query = new URLSearchParams({
-      userId: this.#userId,
-      searchTerm: queryText.trim(),
-      startIndex: String(normalized.startIndex),
-      limit: String(normalized.limit),
-      includeItemTypes: "MusicArtist,MusicAlbum,Audio,Playlist",
-      includePeople: "false",
-      includeMedia: "true",
-      includeGenres: "false",
-      includeStudios: "false",
-      includeArtists: "true",
-    });
+    const normalized = normalizeSearchOptions(options);
+    const itemType = jellyfinSearchItemType(normalized.category);
+    const query = this.#listQuery(normalized);
+    query.set("searchTerm", queryText.trim());
+    query.set("sortBy", "SortName");
+    query.set("sortOrder", "Ascending");
     setOptional(query, "parentId", normalized.libraryId);
-    const payload = await this.#request("/Search/Hints", query);
-    return parseSearchHintPage(payload, normalized.startIndex);
+
+    let pathname = "/Artists";
+    if (normalized.category !== "artist") {
+      pathname = "/Items";
+      query.set("includeItemTypes", itemType);
+      query.set("recursive", "true");
+    }
+
+    return this.#requestPage(pathname, query, (value) =>
+      parseSearchResult(value, itemType),
+    );
   }
 
   async getItemMetadata(itemId: string): Promise<JellyfinItemMetadata> {
@@ -411,6 +424,39 @@ function normalizeAlbumPageOptions(
   };
 }
 
+function normalizeSearchOptions(options: unknown): NormalizedSearchOptions {
+  const page = normalizeLibraryPageOptions(options);
+  const category = (options as JsonObject).category;
+  if (!isSearchCategory(category)) {
+    throw new JellyfinClientError("invalid_input");
+  }
+  return { ...page, category };
+}
+
+function isSearchCategory(value: unknown): value is JellyfinSearchCategory {
+  return (
+    value === "artist" ||
+    value === "album" ||
+    value === "track" ||
+    value === "playlist"
+  );
+}
+
+function jellyfinSearchItemType(
+  category: JellyfinSearchCategory,
+): JellyfinSearchItemType {
+  switch (category) {
+    case "artist":
+      return "MusicArtist";
+    case "album":
+      return "MusicAlbum";
+    case "track":
+      return "Audio";
+    case "playlist":
+      return "Playlist";
+  }
+}
+
 function assertIdentifier(value: unknown): asserts value is string {
   if (!isIdentifier(value)) {
     throw new JellyfinClientError("invalid_input");
@@ -513,8 +559,14 @@ function parsePlaylist(value: JsonObject): JellyfinPlaylist {
   };
 }
 
-function parseSearchResult(value: JsonObject): JellyfinSearchResult {
+function parseSearchResult(
+  value: JsonObject,
+  expectedType?: JellyfinSearchItemType,
+): JellyfinSearchResult {
   const type = requiredMetadata(value, "Type");
+  if (expectedType !== undefined && type !== expectedType) {
+    throw new JellyfinClientError("invalid_server_response");
+  }
   switch (type) {
     case "MusicArtist":
       return parseArtist(value);
@@ -527,54 +579,6 @@ function parseSearchResult(value: JsonObject): JellyfinSearchResult {
     default:
       throw new JellyfinClientError("invalid_server_response");
   }
-}
-
-function parseSearchHintPage(
-  payload: JsonObject,
-  startIndex: number,
-): JellyfinPage<JellyfinSearchResult> {
-  const values = payload.SearchHints;
-  if (!Array.isArray(values)) {
-    throw new JellyfinClientError("invalid_server_response");
-  }
-  const totalRecordCount = requiredNonNegativeInteger(
-    payload,
-    "TotalRecordCount",
-  );
-  const items = values.map((value) => {
-    if (!isJsonObject(value)) {
-      throw new JellyfinClientError("invalid_server_response");
-    }
-    return parseSearchHint(value);
-  });
-  return { items, startIndex, totalRecordCount };
-}
-
-function parseSearchHint(value: JsonObject): JellyfinSearchResult {
-  const id = optionalText(value, "Id") ?? optionalText(value, "ItemId");
-  if (id === undefined) {
-    throw new JellyfinClientError("invalid_server_response");
-  }
-  const artists = optionalTextArray(value, "Artists");
-  const albumArtist = optionalText(value, "AlbumArtist");
-  const normalized: JsonObject = {
-    Id: id,
-    Name: requiredMetadata(value, "Name"),
-    Type: requiredMetadata(value, "Type"),
-    ProductionYear: value.ProductionYear,
-    RunTimeTicks: value.RunTimeTicks,
-    PrimaryImageTag: value.PrimaryImageTag,
-    PrimaryImageAspectRatio: value.PrimaryImageAspectRatio,
-    MediaType: value.MediaType,
-    IsFolder: value.IsFolder,
-    AlbumId: value.AlbumId,
-    Album: value.Album,
-    ParentIndexNumber: value.ParentIndexNumber,
-    IndexNumber: value.IndexNumber,
-    Artists:
-      artists ?? (albumArtist === undefined ? undefined : [albumArtist]),
-  };
-  return parseSearchResult(normalized);
 }
 
 function parseItemMetadata(value: JsonObject): JellyfinItemMetadata {

@@ -1,13 +1,22 @@
 # Sonofin 2.0
 
+[![CI](https://github.com/munkinasack/Sonofin/actions/workflows/ci.yml/badge.svg)](https://github.com/munkinasack/Sonofin/actions/workflows/ci.yml)
+
+> [!WARNING]
+> Sonofin is pre-release software and has not completed its security-hardening
+> or deployment milestones. Do not expose the current Workers as an untrusted
+> public, multi-tenant service.
+
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6 plus Tasks
-7.1–7.6**: browser onboarding ends with a separate, durable Sonos-facing
+7.1–7.7**: browser onboarding ends with a separate, durable Sonos-facing
 credential, the Jellyfin package provides the reusable authenticated music-data
 layer, and the SMAPI Worker resolves each authenticated Sonos mapping into a
 request-scoped Jellyfin data client. Authenticated Sonos clients can now browse
 the fixed root menu, paginated artists, global or artist-filtered albums, and an
-album's or playlist's paginated tracks through `getMetadata`.
+album's or playlist's paginated tracks through `getMetadata`. The Jellyfin
+client also provides category-filtered artist, album, track, and playlist
+search; the Sonos-facing search route remains Task 7.8.
 
 The remaining Milestone 7 tasks and Milestones 8–12 are future work. Their
 product goals are in
@@ -16,6 +25,24 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 7.7 adds
+
+- `@sonofin/jellyfin-client` exports the `JellyfinSearchCategory` union and
+  requires every search to choose `artist`, `album`, `track`, or `playlist`.
+- Each category maps through a fixed allow-list to exactly one Jellyfin item
+  type: `MusicArtist`, `MusicAlbum`, `Audio`, or `Playlist`. Artist searches use
+  Jellyfin's artist-only collection endpoint; the other categories send one
+  exact item-type filter to the general collection endpoint. Filtering
+  therefore happens before pagination instead of filtering a mixed page
+  locally and corrupting its total.
+- Searches retain the existing bounded, trimmed term; optional library scope;
+  validated page bounds; normalized result model; server-returned start index;
+  and Jellyfin-reported total. A missing or unknown category is rejected before
+  any network call, and a response outside the requested category fails closed
+  as an invalid server response.
+- SOAP search parsing, serialization, category presentation, and Worker routing
+  remain Task 7.8.
 
 ## What Task 7.6 adds
 
@@ -169,11 +196,13 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   item-scoped `404` responses have a distinct `item_not_found` error, while
   other server failures remain safely generalized.
 
-Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.6 now supply
+Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.7 now supply
 the browse protocol layer, authenticated context, root route, artist and album
-collections, album tracks, playlists, and playlist tracks; search contents,
-Sonos-facing playback URL generation, stream proxying, caching, and activity
-tracking remain later tasks in Milestones 7–9.
+collections, album tracks, playlists, playlist tracks, and the
+category-filtered Jellyfin search contract. Sonos search serialization and
+routing, direct Sonos-to-Jellyfin playback integration, and activity tracking
+remain later tasks in Milestones 7–9. Caching and stream proxying remain
+explicitly deferred.
 
 ## What Milestone 5 proves
 
@@ -278,9 +307,11 @@ packages/
 - A Cloudflare account for deployment; local development does not access
   production D1
 
-## Install and verify
+## Clone, install, and verify
 
 ```bash
+git clone https://github.com/munkinasack/Sonofin.git
+cd Sonofin
 pnpm install
 pnpm check
 ```
@@ -493,6 +524,18 @@ If rotating the Sonos key, temporarily store the staged keyring in the
 `SONOS_TOKEN_FALLBACK_SIGNING_KEYS` secret as described above. Keep
 `ALLOW_INSECURE_JELLYFIN_HTTP` unset in production and connect only to HTTPS
 Jellyfin servers.
+
+## Contributing and security
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow and pull
+request expectations. Follow [`SECURITY.md`](SECURITY.md) to request a private
+reporting channel, never putting vulnerability details in a public issue.
+
+## License
+
+No open-source license has been granted for this repository. The root package
+is marked `UNLICENSED`; source availability does not grant permission to copy,
+modify, or redistribute the project.
 
 ## Contract references
 

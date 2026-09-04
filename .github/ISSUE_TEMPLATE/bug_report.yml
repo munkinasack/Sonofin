@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible Sonofin defect without sharing credentials or private identifiers.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Sonofin. Never include passwords, access tokens, private keys, link codes, device or household identifiers, private Jellyfin URLs, request headers/bodies, server response bodies, or unsanitized logs. For a vulnerability, follow SECURITY.md and use the security-contact form without including technical details.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: A concise, credential-free description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest reproducible sequence using placeholders for all private values.
+      placeholder: |
+        1. Start...
+        2. Send a sanitized request...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the Sonofin commit, Node.js, pnpm, Wrangler, Jellyfin, and Sonos versions that are relevant. Do not include account or server identifiers.
+      placeholder: |
+        Sonofin commit:
+        Node.js:
+        pnpm:
+        Wrangler:
+        Jellyfin:
+        Sonos:
+    validations:
+      required: true
+
+  - type: textarea
+    id: sanitized_evidence
+    attributes:
+      label: Sanitized evidence
+      description: Optional minimal output with all credentials, URLs, IDs, request bodies, headers, and server bodies removed.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed all credentials, private URLs, identifiers, request bodies, headers, server bodies, and unsanitized logs.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
