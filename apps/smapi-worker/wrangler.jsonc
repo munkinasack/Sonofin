@@ -3,9 +3,10 @@
   "name": "sonofin-smapi",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-22",
+  // Preserve dashboard-managed variables such as ONBOARDING_URL on deploy.
+  "keep_vars": true,
   "vars": {
-    "LINK_CODE_TTL_SECONDS": "600",
-    "ONBOARDING_URL": "https://sonofin-auth.jkl.workers.dev/onboarding"
+    "LINK_CODE_TTL_SECONDS": "600"
   },
   "d1_databases": [
     {
