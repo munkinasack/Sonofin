@@ -7,8 +7,7 @@
     {
       "binding": "DB",
       "database_name": "sonofin",
-      // Use the same production D1 database ID as sonofin-smapi.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Wrangler binds the existing database by name or provisions it on deploy.
       "migrations_dir": "../../packages/database/migrations"
     }
   ]
