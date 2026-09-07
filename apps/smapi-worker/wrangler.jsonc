@@ -4,16 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-22",
   "vars": {
-    "LINK_CODE_TTL_SECONDS": "600",
-    "ONBOARDING_URL": "http://127.0.0.1:8788/onboarding"
+    "LINK_CODE_TTL_SECONDS": "600"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "sonofin",
-      // Replace this local fixture ID with the ID from `wrangler d1 create sonofin`
-      // before deploying either Worker.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Wrangler binds the existing database by name or provisions it on deploy.
       "migrations_dir": "../../packages/database/migrations"
     }
   ]
