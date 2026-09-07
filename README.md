@@ -9,22 +9,41 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6 plus Tasks
-7.1–7.7**: browser onboarding ends with a separate, durable Sonos-facing
+7.1–7.8**: browser onboarding ends with a separate, durable Sonos-facing
 credential, the Jellyfin package provides the reusable authenticated music-data
 layer, and the SMAPI Worker resolves each authenticated Sonos mapping into a
 request-scoped Jellyfin data client. Authenticated Sonos clients can now browse
 the fixed root menu, paginated artists, global or artist-filtered albums, and an
-album's or playlist's paginated tracks through `getMetadata`. The Jellyfin
-client also provides category-filtered artist, album, track, and playlist
-search; the Sonos-facing search route remains Task 7.8.
+album's or playlist's paginated tracks through `getMetadata`. Authenticated
+search now exposes and accepts matching artist, album, track, and playlist
+category IDs and returns the category-filtered Jellyfin results through SMAPI.
 
-The remaining Milestone 7 tasks and Milestones 8–12 are future work. Their
-product goals are in
+Task 7.9 and Milestones 8–12 remain future work. Their product goals are in
 [`Sonofin_2_Codex_Handoff.md`](Sonofin_2_Codex_Handoff.md), and the authoritative
 dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 7.8 adds
+
+- Browsing the literal `search` container returns Artists (`artist`), Albums
+  (`album`), Tracks (`track`), and Playlists (`playlist`) in stable paginated
+  order. Each collection uses SMAPI's `search` item type, and those exact
+  singular IDs are the only categories accepted by the `search` method.
+- The authenticated Worker routes WSDL-ordered `id`, `term`, `index`, and
+  `count` parameters through an injected search service. Categories, Unicode
+  terms, and Sonos page bounds are validated before contacting Jellyfin;
+  missing, plural, unknown, extra, or out-of-order inputs receive one fixed,
+  credential-safe client fault.
+- Search results reuse the browse collection and track formatters, preserving
+  Jellyfin order and totals while producing the same canonical artist, album,
+  playlist, and track IDs and metadata as `getMetadata`. A response outside the
+  requested category or page fails closed.
+- `@sonofin/sonos-smapi` serializes `searchResponse`/`searchResult` using the
+  WSDL media-list order and the same item, paging, text, and XML-safety checks
+  as browse responses. Search logs remain allow-listed and never include terms,
+  category IDs, content IDs, credentials, URLs, or upstream error text.
 
 ## What Task 7.7 adds
 
@@ -41,8 +60,8 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   and Jellyfin-reported total. A missing or unknown category is rejected before
   any network call, and a response outside the requested category fails closed
   as an invalid server response.
-- SOAP search parsing, serialization, category presentation, and Worker routing
-  remain Task 7.8.
+- Task 7.8 adds SOAP serialization, category presentation, and authenticated
+  Worker routing on top of this client contract.
 
 ## What Task 7.6 adds
 
@@ -72,8 +91,8 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
 - Browsing an encoded album ID calls `getAlbumTracks()` with the exact decoded
   Jellyfin album ID. The Worker preserves Jellyfin's disc/track ordering,
   requested page index, and total rather than re-sorting tracks locally.
-- One exported normalized-track formatter now gives album, playlist, future
-  search, and future item-metadata routes a consistent SMAPI representation.
+- One exported normalized-track formatter now gives album, playlist, search,
+  and future item-metadata routes a consistent SMAPI representation.
   It emits canonical track, artist, and album IDs when usable; converts
   Jellyfin milliseconds to whole Sonos seconds; retains a safe track number;
   and omits unavailable or unsafe optional metadata.
@@ -196,13 +215,12 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   item-scoped `404` responses have a distinct `item_not_found` error, while
   other server failures remain safely generalized.
 
-Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.7 now supply
+Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.8 now supply
 the browse protocol layer, authenticated context, root route, artist and album
 collections, album tracks, playlists, playlist tracks, and the
-category-filtered Jellyfin search contract. Sonos search serialization and
-routing, direct Sonos-to-Jellyfin playback integration, and activity tracking
-remain later tasks in Milestones 7–9. Caching and stream proxying remain
-explicitly deferred.
+category-filtered Jellyfin and Sonos search contracts. Direct
+Sonos-to-Jellyfin playback integration and activity tracking remain later tasks
+in Milestones 8–9. Caching and stream proxying remain explicitly deferred.
 
 ## What Milestone 5 proves
 

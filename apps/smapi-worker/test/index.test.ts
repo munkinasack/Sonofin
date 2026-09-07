@@ -13,10 +13,12 @@ import smapiWorker, {
   mapJellyfinErrorToSoapFault,
   resolveSmapiAuthenticatedContext,
   SonofinBrowseService,
+  SonofinSearchService,
   type SmapiDependencies,
   type SmapiGetMetadataRequest,
   type SmapiJellyfinConnectionResolver,
   type SmapiLinkService,
+  type SmapiSearchRequest,
   type SmapiSonosAuthentication,
 } from "../src";
 
@@ -123,6 +125,7 @@ function createDependencies(
     jellyfinConnections: createJellyfinConnections(),
     links: createLinks(),
     onboardingUrl: "https://auth.example.test/onboarding",
+    search: new SonofinSearchService(),
     sonosAuthentication: createSonosAuthentication(),
     ttlSeconds: 600,
     ...overrides,
@@ -144,6 +147,9 @@ const DEVICE_TOKEN_PARAMETERS =
   `<linkDeviceId>${LINK_DEVICE_ID}</linkDeviceId>`;
 const ROOT_METADATA_PARAMETERS =
   "<id>root</id><index>0</index><count>100</count>";
+const SEARCH_PARAMETERS =
+  "<id>track</id><term>Björk 東京 &amp; 🎵</term>" +
+  "<index>0</index><count>10</count>";
 
 describe("SMAPI Worker", () => {
   it("returns the hard-coded getLastUpdate response", async () => {
@@ -353,13 +359,10 @@ describe("SMAPI Worker", () => {
     expect(rejectedDependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "tracks",
-    "search",
-  ])("returns ItemNotFound for deferred browse ID %s", async (id) => {
+  it("returns ItemNotFound for the deferred tracks browse ID", async () => {
     const response = await handleRequest(
       makeSoapRequest("getMetadata", {
-        parameters: `<id>${id}</id><index>0</index><count>100</count>`,
+        parameters: "<id>tracks</id><index>0</index><count>100</count>",
       }),
       createDependencies(),
     );
@@ -368,7 +371,372 @@ describe("SMAPI Worker", () => {
     expect(response.status).toBe(500);
     expect(body).toContain("<faultcode>Client.ItemNotFound</faultcode>");
     expect(body).toContain("The requested item is not available");
-    expect(body).not.toContain(id);
+    expect(body).not.toContain("tracks");
+  });
+
+  it("serializes the four stable search categories through getMetadata", async () => {
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters: "<id>search</id><index>0</index><count>100</count>",
+      }),
+      createDependencies(),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain(
+      "<getMetadataResult><index>0</index><count>4</count><total>4</total>",
+    );
+    const categories = [
+      ["artist", "Artists"],
+      ["album", "Albums"],
+      ["track", "Tracks"],
+      ["playlist", "Playlists"],
+    ] as const;
+    for (const [id, title] of categories) {
+      expect(body).toContain(
+        `<mediaCollection><id>${id}</id><itemType>search</itemType>` +
+          `<title>${title}</title><canScroll>false</canScroll>` +
+          "<canPlay>false</canPlay><canEnumerate>false</canEnumerate>" +
+          "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
+      );
+    }
+    for (let index = 1; index < categories.length; index += 1) {
+      expect(body.indexOf(`<id>${categories[index - 1]?.[0]}</id>`)).toBeLessThan(
+        body.indexOf(`<id>${categories[index]?.[0]}</id>`),
+      );
+    }
+    expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("routes an authenticated mixed-Unicode search through the exact boundary context", async () => {
+    const trackId = encodeSonosContentId({
+      kind: "track",
+      value: "track-三",
+    });
+    const search = vi.fn(() =>
+      Promise.resolve({
+        index: 7,
+        items: [
+          {
+            id: trackId,
+            itemType: "track" as const,
+            kind: "track" as const,
+            mimeType: "audio/flac",
+            title: "Söngur <東京> & 🎵",
+            trackMetadata: {
+              canAddToFavorites: false,
+              canPlay: false,
+              canResume: false,
+              canSeek: false,
+              canSkip: false,
+            },
+          },
+        ],
+        total: 8,
+      }),
+    );
+    const dependencies = createDependencies({ search: { search } });
+    const response = await handleRequest(
+      makeSoapRequest("search", {
+        parameters:
+          "<id>track</id><term>  Björk 東京 &amp; Café 🎵  </term>" +
+          "<index>7</index><count>2</count>",
+      }),
+      dependencies,
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain(
+      '<searchResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        "<searchResult><index>7</index><count>1</count><total>8</total>" +
+        `<mediaMetadata><id>${trackId}</id><itemType>track</itemType>` +
+        "<title>Söngur &lt;東京&gt; &amp; 🎵</title>" +
+        "<mimeType>audio/flac</mimeType><trackMetadata>" +
+        "<canPlay>false</canPlay><canSkip>false</canSkip>" +
+        "<canAddToFavorites>false</canAddToFavorites>" +
+        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "</trackMetadata></mediaMetadata></searchResult></searchResponse>",
+    );
+    expect(search).toHaveBeenCalledOnce();
+    expect(search).toHaveBeenCalledWith({
+      context: {
+        jellyfin: FAKE_DATA_CLIENT,
+        sonosMapping: {
+          householdId: "Sonos_household",
+          id: "a".repeat(64),
+          jellyfinConnectionId: "J".repeat(32),
+        },
+      },
+      count: "2",
+      id: "track",
+      index: "7",
+      term: "  Björk 東京 & Café 🎵  ",
+    });
+    expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it.each([
+    [
+      "missing id",
+      "<term>private-search-term</term><index>0</index><count>10</count>",
+      true,
+    ],
+    [
+      "empty id",
+      "<id></id><term>private-search-term</term><index>0</index><count>10</count>",
+      true,
+    ],
+    [
+      "plural category",
+      "<id>tracks</id><term>private-search-term</term><index>0</index><count>10</count>",
+      true,
+    ],
+    ["missing term", "<id>track</id><index>0</index><count>10</count>", true],
+    [
+      "blank term",
+      "<id>track</id><term>   </term><index>0</index><count>10</count>",
+      true,
+    ],
+    [
+      "overlong term",
+      `<id>track</id><term>${"🎵".repeat(513)}</term>` +
+        "<index>0</index><count>10</count>",
+      true,
+    ],
+    [
+      "missing index",
+      "<id>track</id><term>private-search-term</term><count>10</count>",
+      true,
+    ],
+    [
+      "negative index",
+      "<id>track</id><term>private-search-term</term><index>-1</index><count>10</count>",
+      true,
+    ],
+    [
+      "missing count",
+      "<id>track</id><term>private-search-term</term><index>0</index>",
+      true,
+    ],
+    [
+      "zero count",
+      "<id>track</id><term>private-search-term</term><index>0</index><count>0</count>",
+      true,
+    ],
+    [
+      "extra parameter",
+      SEARCH_PARAMETERS + "<privateParameter>secret-value</privateParameter>",
+      false,
+    ],
+    [
+      "out-of-order parameters",
+      "<term>private-search-term</term><id>track</id><index>0</index><count>10</count>",
+      false,
+    ],
+  ] as const)(
+    "rejects search with %s using a fixed parameter fault",
+    async (_name, parameters, reachesSearchBoundary) => {
+      const jellyfinSearch = vi.fn();
+      const service = new SonofinSearchService();
+      const search = vi.fn((request: SmapiSearchRequest) =>
+        service.search(request),
+      );
+      const response = await handleRequest(
+        makeSoapRequest("search", { parameters }),
+        createDependencies({
+          createJellyfinDataClient: vi.fn().mockReturnValue({
+            search: jellyfinSearch,
+          } as unknown as JellyfinDataClient),
+          search: { search },
+        }),
+      );
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(body).toContain("<faultcode>soap:Client</faultcode>");
+      expect(body).toContain("The search parameters are invalid");
+      expect(body).not.toContain("private-search-term");
+      expect(body).not.toContain("secret-value");
+      expect(search).toHaveBeenCalledTimes(reachesSearchBoundary ? 1 : 0);
+      expect(jellyfinSearch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects duplicate search parameters as fixed invalid SOAP without echoing them", async () => {
+    const dependencies = createDependencies();
+    const response = await handleRequest(
+      makeSoapRequest("search", {
+        parameters:
+          "<id>track</id><term>first-private-term</term>" +
+          "<term>second-private-term</term><index>0</index><count>10</count>",
+      }),
+      dependencies,
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(body).toContain("<faultcode>soap:Client</faultcode>");
+    expect(body).toContain("The SOAP request is invalid");
+    expect(body).not.toContain("first-private-term");
+    expect(body).not.toContain("second-private-term");
+    expect(dependencies.sonosAuthentication.authenticate).not.toHaveBeenCalled();
+    expect(dependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("authenticates before validating or executing search", async () => {
+    const missingSearch = { search: vi.fn() };
+    const missingDependencies = createDependencies({ search: missingSearch });
+    const missing = await handleRequest(
+      makeSoapRequest("search", {
+        includeCredentials: false,
+        parameters: "<id>private-invalid-category</id>",
+      }),
+      missingDependencies,
+    );
+    const sonosAuthentication = createSonosAuthentication();
+    vi.mocked(sonosAuthentication.authenticate).mockResolvedValue({
+      outcome: "failure",
+    });
+    const rejectedSearch = { search: vi.fn() };
+    const rejectedDependencies = createDependencies({
+      search: rejectedSearch,
+      sonosAuthentication,
+    });
+    const rejected = await handleRequest(
+      makeSoapRequest("search", {
+        parameters: "<id>private-invalid-category</id>",
+      }),
+      rejectedDependencies,
+    );
+
+    expect(missing.status).toBe(500);
+    expect(await missing.text()).toContain("Client.LoginUnauthorized");
+    expect(rejected.status).toBe(500);
+    expect(await rejected.text()).toContain("Client.LoginUnauthorized");
+    expect(missingSearch.search).not.toHaveBeenCalled();
+    expect(rejectedSearch.search).not.toHaveBeenCalled();
+    expect(missingDependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(rejectedDependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(missingDependencies.createJellyfinDataClient).not.toHaveBeenCalled();
+    expect(rejectedDependencies.createJellyfinDataClient).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["token_invalid", "Client.AuthTokenExpired"],
+    ["item_not_found", "Client.ItemNotFound"],
+    ["server_unreachable", "Server.ServiceUnavailable"],
+    ["invalid_server_response", "Server.ServiceUnknownError"],
+  ] as const)(
+    "maps search Jellyfin %s to the fixed %s fault",
+    async (code, faultCode) => {
+      const response = await handleRequest(
+        makeSoapRequest("search", { parameters: SEARCH_PARAMETERS }),
+        createDependencies({
+          search: {
+            search: vi.fn().mockRejectedValue(new JellyfinClientError(code)),
+          },
+        }),
+      );
+
+      expect(response.status).toBe(500);
+      expect(await response.text()).toContain(
+        `<faultcode>${faultCode}</faultcode>`,
+      );
+    },
+  );
+
+  it("redacts arbitrary search failures from SOAP faults and allow-listed logs", async () => {
+    const secretCanary =
+      "https://user:password@example.test/private?token=search-secret";
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("search", {
+        parameters:
+          "<id>track</id><term>private-failure-term</term>" +
+          "<index>0</index><count>10</count>",
+      }),
+      createDependencies({
+        logSink: sink,
+        search: {
+          search: vi.fn().mockRejectedValue(new Error(secretCanary)),
+        },
+      }),
+    );
+    const body = await response.text();
+    const logged = [
+      ...vi.mocked(sink.error).mock.calls.flat(),
+      ...vi.mocked(sink.info).mock.calls.flat(),
+      ...vi.mocked(sink.warn).mock.calls.flat(),
+    ].join("");
+
+    expect(response.status).toBe(500);
+    expect(body).toContain(
+      "<faultcode>Server.ServiceUnknownError</faultcode>",
+    );
+    expect(logged).toContain('"soapMethod":"search"');
+    expect(logged).toContain('"reason":"internal_error"');
+    expect(body).not.toContain(secretCanary);
+    expect(logged).not.toContain(secretCanary);
+    expect(logged).not.toContain("private-failure-term");
+    expect(logged).not.toContain("never-log-this-token");
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("logs search success and rejection with exactly the allow-listed fields", async () => {
+    const successSink = createSink();
+    await handleRequest(
+      makeSoapRequest("search", {
+        parameters:
+          "<id>track</id><term>private-success-term</term>" +
+          "<index>0</index><count>10</count>",
+      }),
+      createDependencies({
+        logSink: successSink,
+        search: {
+          search: vi.fn().mockResolvedValue({ index: 0, items: [], total: 0 }),
+        },
+      }),
+    );
+    const rejectionSink = createSink();
+    await handleRequest(
+      makeSoapRequest("search", {
+        parameters:
+          "<id>private-invalid-id</id><term>private-rejection-term</term>" +
+          "<index>0</index><count>10</count>",
+      }),
+      createDependencies({ logSink: rejectionSink }),
+    );
+    const successMessage = vi.mocked(successSink.info).mock.calls[0]?.[0];
+    const rejectionMessage = vi.mocked(rejectionSink.warn).mock.calls[0]?.[0];
+    const successLog = JSON.parse(successMessage ?? "") as unknown;
+    const rejectionLog = JSON.parse(rejectionMessage ?? "") as unknown;
+    const logged = `${successMessage ?? ""}${rejectionMessage ?? ""}`;
+
+    expect(successLog).toEqual({
+      durationMs: expect.any(Number),
+      event: "smapi.request",
+      httpStatus: 200,
+      outcome: "success",
+      requestId: expect.any(String),
+      soapMethod: "search",
+    });
+    expect(rejectionLog).toEqual({
+      durationMs: expect.any(Number),
+      event: "smapi.request",
+      httpStatus: 500,
+      outcome: "rejected",
+      reason: "invalid_parameters",
+      requestId: expect.any(String),
+      soapMethod: "search",
+    });
+    expect(logged).not.toContain("private-success-term");
+    expect(logged).not.toContain("private-invalid-id");
+    expect(logged).not.toContain("private-rejection-term");
+    expect(logged).not.toContain("never-log-this-token");
   });
 
   it("serializes artists and artist-filtered albums through the authenticated route", async () => {

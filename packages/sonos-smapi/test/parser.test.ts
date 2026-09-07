@@ -295,6 +295,47 @@ describe("parseSoapRequest", () => {
     expect(Object.isFrozen(parsed.parameters)).toBe(true);
   });
 
+  it("extracts a mixed-Unicode search request in WSDL parameter order", () => {
+    const request = `<?xml version="1.0" encoding="utf-8"?>
+      <soap:Envelope
+        xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:smapi="http://www.sonos.com/Services/1.1"
+      >
+        <soap:Body>
+          <smapi:search>
+            <smapi:id>track</smapi:id>
+            <smapi:term>Björk 東京 &amp; Café <![CDATA[🎵]]></smapi:term>
+            <smapi:index>12</smapi:index>
+            <smapi:count>25</smapi:count>
+          </smapi:search>
+        </soap:Body>
+      </soap:Envelope>
+    `;
+
+    const parsed = parseSoapRequest(
+      request,
+      '"http://www.sonos.com/Services/1.1#search"',
+    );
+
+    expect(parsed).toEqual({
+      action: "http://www.sonos.com/Services/1.1#search",
+      method: "search",
+      parameters: {
+        id: "track",
+        term: "Björk 東京 & Café 🎵",
+        index: "12",
+        count: "25",
+      },
+    });
+    expect(Object.keys(parsed.parameters)).toEqual([
+      "id",
+      "term",
+      "index",
+      "count",
+    ]);
+    expect(Object.isFrozen(parsed.parameters)).toBe(true);
+  });
+
   it("preserves scalar parameter whitespace for method-specific validation", () => {
     const request = `
       <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">

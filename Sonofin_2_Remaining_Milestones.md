@@ -211,7 +211,7 @@ new album-track task before 7.6.
 
 **Not in scope:** SOAP search serialization or Worker routing.
 
-### [ ] Task 7.8 — SMAPI search categories and search route
+### [x] Task 7.8 — SMAPI search categories and search route
 
 **Budget:** 3–4.5 hours. **Prerequisites:** 7.1, 7.3, and 7.7.
 

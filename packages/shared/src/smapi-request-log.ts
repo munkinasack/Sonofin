@@ -25,7 +25,8 @@ export interface SmapiRequestLog {
     | "getAppLink"
     | "getDeviceAuthToken"
     | "getLastUpdate"
-    | "getMetadata";
+    | "getMetadata"
+    | "search";
 }
 
 export interface SmapiLogSink {

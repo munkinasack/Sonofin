@@ -22,6 +22,7 @@ export {
 export { SONOS_MAX_COLLECTION_TEXT_CHARACTERS } from "./browse";
 export type {
   GetMetadataResult,
+  SearchResult,
   SonosBrowseCollection,
   SonosBrowseItem,
   SonosBrowseTrack,
@@ -45,6 +46,7 @@ export {
   serializeGetDeviceAuthTokenResponse,
   serializeGetLastUpdateResponse,
   serializeGetMetadataResponse,
+  serializeSearchResponse,
   serializeSoapFault,
   type AppLinkResult,
   type DeviceAuthTokenResult,

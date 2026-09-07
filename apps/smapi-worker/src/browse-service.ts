@@ -21,6 +21,7 @@ import {
 } from "@sonofin/sonos-smapi";
 
 import type { SmapiAuthenticatedRequestContext } from "./authenticated-context";
+import { SMAPI_SEARCH_CATEGORY_ITEMS } from "./search-categories";
 import { formatJellyfinTrackAsSonosBrowseTrack } from "./track-formatter";
 
 export type SmapiBrowseErrorCode =
@@ -125,7 +126,7 @@ function encodeRequiredEntityId(
   }
 }
 
-function entityCollection(
+export function formatJellyfinEntityAsSonosBrowseCollection(
   item: JellyfinArtist | JellyfinAlbum | JellyfinPlaylist,
 ): SonosBrowseCollection {
   if (!isSonosDisplayText(item.name)) {
@@ -246,7 +247,11 @@ export class SonofinBrowseService implements SmapiBrowseService {
         limit: pagination.count,
         startIndex: pagination.index,
       });
-      return browsePage(page, pagination, entityCollection);
+      return browsePage(
+        page,
+        pagination,
+        formatJellyfinEntityAsSonosBrowseCollection,
+      );
     }
 
     if (contentId.kind === "category" && contentId.value === "albums") {
@@ -254,7 +259,11 @@ export class SonofinBrowseService implements SmapiBrowseService {
         limit: pagination.count,
         startIndex: pagination.index,
       });
-      return browsePage(page, pagination, entityCollection);
+      return browsePage(
+        page,
+        pagination,
+        formatJellyfinEntityAsSonosBrowseCollection,
+      );
     }
 
     if (contentId.kind === "category" && contentId.value === "playlists") {
@@ -262,7 +271,11 @@ export class SonofinBrowseService implements SmapiBrowseService {
         limit: pagination.count,
         startIndex: pagination.index,
       });
-      return browsePage(page, pagination, entityCollection);
+      return browsePage(
+        page,
+        pagination,
+        formatJellyfinEntityAsSonosBrowseCollection,
+      );
     }
 
     if (contentId.kind === "artist") {
@@ -271,7 +284,11 @@ export class SonofinBrowseService implements SmapiBrowseService {
         limit: pagination.count,
         startIndex: pagination.index,
       });
-      return browsePage(page, pagination, entityCollection);
+      return browsePage(
+        page,
+        pagination,
+        formatJellyfinEntityAsSonosBrowseCollection,
+      );
     }
 
     if (contentId.kind === "album") {
@@ -302,6 +319,20 @@ export class SonofinBrowseService implements SmapiBrowseService {
         pagination,
         formatJellyfinTrackAsSonosBrowseTrack,
       );
+    }
+
+    if (contentId.kind === "category" && contentId.value === "search") {
+      const end = Math.min(
+        SMAPI_SEARCH_CATEGORY_ITEMS.length,
+        pagination.index + pagination.count,
+      );
+      return Object.freeze({
+        index: pagination.index,
+        items: Object.freeze(
+          SMAPI_SEARCH_CATEGORY_ITEMS.slice(pagination.index, end),
+        ),
+        total: SMAPI_SEARCH_CATEGORY_ITEMS.length,
+      });
     }
 
     if (contentId.kind === "root") {

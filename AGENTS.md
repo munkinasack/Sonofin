@@ -4,7 +4,7 @@
 
 - These instructions apply to the entire repository.
 - Sonofin 2.0 is an ESM TypeScript monorepo for two Cloudflare Workers. The
-  checked-in implementation is currently Milestone 6 plus Tasks 7.1–7.7; use
+  checked-in implementation is currently Milestone 6 plus Tasks 7.1–7.8; use
   `README.md`, source, and tests as the description of current behavior.
 - `Sonofin_2_Codex_Handoff.md` contains the broader design and future-state
   decisions. Do not assume roadmap items in it are already implemented.

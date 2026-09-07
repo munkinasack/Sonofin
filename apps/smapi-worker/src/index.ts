@@ -27,6 +27,7 @@ import {
   serializeGetDeviceAuthTokenResponse,
   serializeGetLastUpdateResponse,
   serializeGetMetadataResponse,
+  serializeSearchResponse,
   serializeSoapFault,
   SoapRequestError,
   type SoapFaultCode,
@@ -45,6 +46,11 @@ import {
   SonofinBrowseService,
   type SmapiBrowseService,
 } from "./browse-service";
+import {
+  SmapiSearchError,
+  SonofinSearchService,
+  type SmapiSearchService,
+} from "./search-service";
 
 export {
   mapJellyfinErrorToSoapFault,
@@ -62,10 +68,18 @@ export type {
 export {
   SmapiBrowseError,
   SonofinBrowseService,
+  formatJellyfinEntityAsSonosBrowseCollection,
   type SmapiBrowseErrorCode,
   type SmapiBrowseService,
   type SmapiGetMetadataRequest,
 } from "./browse-service";
+export {
+  SmapiSearchError,
+  SonofinSearchService,
+  type SmapiSearchErrorCode,
+  type SmapiSearchRequest,
+  type SmapiSearchService,
+} from "./search-service";
 export { formatJellyfinTrackAsSonosBrowseTrack } from "./track-formatter";
 
 const DEFAULT_LINK_TTL_SECONDS = 10 * 60;
@@ -76,7 +90,8 @@ type SupportedMethod =
   | "getAppLink"
   | "getDeviceAuthToken"
   | "getLastUpdate"
-  | "getMetadata";
+  | "getMetadata"
+  | "search";
 
 interface Env {
   ALLOW_INSECURE_JELLYFIN_HTTP?: string;
@@ -141,6 +156,7 @@ export interface SmapiDependencies
   links: SmapiLinkService;
   onboardingUrl: string;
   sonosAuthentication: SmapiSonosAuthentication;
+  search: SmapiSearchService;
   ttlSeconds?: number;
   logSink?: SmapiLogSink;
 }
@@ -209,6 +225,13 @@ const BROWSE_ITEM_NOT_FOUND_FAULT = {
   reason: "item_not_found",
 } as const satisfies SmapiSafeSoapFault;
 
+const INVALID_SEARCH_PARAMETERS_FAULT = {
+  faultCode: "soap:Client",
+  message: "The search parameters are invalid",
+  outcome: "rejected",
+  reason: "invalid_parameters",
+} as const satisfies SmapiSafeSoapFault;
+
 function browseErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
   if (!(error instanceof SmapiBrowseError)) {
     return mapJellyfinErrorToSoapFault(error);
@@ -220,6 +243,14 @@ function browseErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
     case "item_not_found":
       return BROWSE_ITEM_NOT_FOUND_FAULT;
   }
+}
+
+function searchErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
+  if (error instanceof SmapiSearchError) {
+    return INVALID_SEARCH_PARAMETERS_FAULT;
+  }
+
+  return mapJellyfinErrorToSoapFault(error);
 }
 
 function isXmlContentType(value: string | null): boolean {
@@ -236,7 +267,8 @@ function isSupportedMethod(method: string): method is SupportedMethod {
     method === "getAppLink" ||
     method === "getDeviceAuthToken" ||
     method === "getLastUpdate" ||
-    method === "getMetadata"
+    method === "getMetadata" ||
+    method === "search"
   );
 }
 
@@ -246,6 +278,7 @@ const GET_METADATA_PARAMETER_ORDER = [
   "count",
   "recursive",
 ] as const;
+const SEARCH_PARAMETER_ORDER = ["id", "term", "index", "count"] as const;
 
 function hasValidGetMetadataParameterShape(
   parameters: Readonly<Record<string, string>>,
@@ -254,6 +287,23 @@ function hasValidGetMetadataParameterShape(
   for (const name of Object.keys(parameters)) {
     const position = GET_METADATA_PARAMETER_ORDER.indexOf(
       name as (typeof GET_METADATA_PARAMETER_ORDER)[number],
+    );
+    if (position < 0 || position <= previousPosition) {
+      return false;
+    }
+    previousPosition = position;
+  }
+
+  return true;
+}
+
+function hasValidSearchParameterShape(
+  parameters: Readonly<Record<string, string>>,
+): boolean {
+  let previousPosition = -1;
+  for (const name of Object.keys(parameters)) {
+    const position = SEARCH_PARAMETER_ORDER.indexOf(
+      name as (typeof SEARCH_PARAMETER_ORDER)[number],
     );
     if (position < 0 || position <= previousPosition) {
       return false;
@@ -508,6 +558,33 @@ async function handleGetMetadata(
   }
 }
 
+async function handleSearch(
+  parameters: Readonly<Record<string, string>>,
+  context: SmapiAuthenticatedRequestContext,
+  dependencies: SmapiDependencies,
+): Promise<RequestResult> {
+  try {
+    if (!hasValidSearchParameterShape(parameters)) {
+      throw new SmapiSearchError("invalid_parameters");
+    }
+
+    const result = await dependencies.search.search({
+      context,
+      count: parameters.count,
+      id: parameters.id,
+      index: parameters.index,
+      term: parameters.term,
+    });
+    return {
+      outcome: "success",
+      response: xmlResponse(serializeSearchResponse(result)),
+      soapMethod: "search",
+    };
+  } catch (error) {
+    return safeSoapFailure("search", searchErrorToSoapFault(error));
+  }
+}
+
 async function routeRequest(
   request: Request,
   dependencies: SmapiDependencies,
@@ -599,7 +676,8 @@ async function routeRequest(
 
   if (
     parsed.method === "getLastUpdate" ||
-    parsed.method === "getMetadata"
+    parsed.method === "getMetadata" ||
+    parsed.method === "search"
   ) {
     const authenticated = await resolveSmapiAuthenticatedContext(
       parsed.credentials,
@@ -611,6 +689,14 @@ async function routeRequest(
 
     if (parsed.method === "getLastUpdate") {
       return handleGetLastUpdate(authenticated.context);
+    }
+
+    if (parsed.method === "search") {
+      return handleSearch(
+        parsed.parameters,
+        authenticated.context,
+        dependencies,
+      );
     }
 
     return handleGetMetadata(
@@ -723,6 +809,7 @@ export default {
         links,
         onboardingUrl: env.ONBOARDING_URL ?? "",
         sonosAuthentication,
+        search: new SonofinSearchService(),
         ttlSeconds:
           env.LINK_CODE_TTL_SECONDS === undefined
             ? DEFAULT_LINK_TTL_SECONDS

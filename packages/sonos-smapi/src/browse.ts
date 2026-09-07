@@ -77,3 +77,6 @@ export interface GetMetadataResult {
   readonly total: number;
   readonly items: readonly SonosBrowseItem[];
 }
+
+/** The SMAPI search response uses the same WSDL media-list shape as browse. */
+export type SearchResult = GetMetadataResult;

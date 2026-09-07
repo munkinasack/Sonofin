@@ -9,6 +9,7 @@ import {
 import {
   SONOS_MAX_COLLECTION_TEXT_CHARACTERS,
   type GetMetadataResult,
+  type SearchResult,
   type SonosBrowseCollection,
   type SonosBrowseItem,
   type SonosBrowseTrack,
@@ -398,11 +399,12 @@ function serializeBrowseItem(item: SonosBrowseItem): string {
   throw new TypeError("items must contain supported browse item kinds");
 }
 
-export function serializeGetMetadataResponse(
+function serializeMediaList(
   result: GetMetadataResult,
+  resultName: string,
 ): string {
   if (typeof result !== "object" || result === null) {
-    throw new TypeError("getMetadata result must be an object");
+    throw new TypeError(`${resultName} must be an object`);
   }
   requireInteger(result.index, 0, SONOS_MAX_SIGNED_INT, "index");
   requireInteger(result.total, 0, SONOS_MAX_SIGNED_INT, "total");
@@ -430,15 +432,35 @@ export function serializeGetMetadataResponse(
   for (const item of result.items) {
     items += serializeBrowseItem(item);
   }
+  return (
+    `<index>${result.index}</index>` +
+    `<count>${count}</count>` +
+    `<total>${result.total}</total>` +
+    items
+  );
+}
+
+export function serializeGetMetadataResponse(
+  result: GetMetadataResult,
+): string {
+  const mediaList = serializeMediaList(result, "getMetadata result");
   return soapEnvelope(
     `<getMetadataResponse xmlns="${SMAPI_NAMESPACE}">` +
       `<getMetadataResult>` +
-      `<index>${result.index}</index>` +
-      `<count>${count}</count>` +
-      `<total>${result.total}</total>` +
-      items +
+      mediaList +
       `</getMetadataResult>` +
       `</getMetadataResponse>`,
+  );
+}
+
+export function serializeSearchResponse(result: SearchResult): string {
+  const mediaList = serializeMediaList(result, "search result");
+  return soapEnvelope(
+    `<searchResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `<searchResult>` +
+      mediaList +
+      `</searchResult>` +
+      `</searchResponse>`,
   );
 }
 

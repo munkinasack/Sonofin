@@ -165,14 +165,50 @@ describe("SonofinBrowseService", () => {
     );
   });
 
-  it.each([
-    "tracks",
-    "search",
-  ])("rejects the valid but not-yet-supported ID %s", async (id) => {
+  it("rejects the valid but not-yet-supported ID tracks", async () => {
     await expectBrowseError(
-      new SonofinBrowseService().getMetadata(request({ id })),
+      new SonofinBrowseService().getMetadata(request({ id: "tracks" })),
       "item_not_found",
     );
+  });
+
+  it("returns stable paginated search categories without calling Jellyfin", async () => {
+    const service = new SonofinBrowseService();
+    const result = await service.getMetadata(
+      request({ count: "2", id: "search", index: "1" }),
+    );
+
+    expect(result).toEqual({
+      index: 1,
+      items: [
+        {
+          canAddToFavorites: false,
+          canEnumerate: false,
+          canPlay: false,
+          canScroll: false,
+          id: "album",
+          itemType: "search",
+          kind: "collection",
+          title: "Albums",
+        },
+        {
+          canAddToFavorites: false,
+          canEnumerate: false,
+          canPlay: false,
+          canScroll: false,
+          id: "track",
+          itemType: "search",
+          kind: "collection",
+          title: "Tracks",
+        },
+      ],
+      total: 4,
+    });
+    await expect(
+      service.getMetadata(
+        request({ count: "100", id: "search", index: "4" }),
+      ),
+    ).resolves.toEqual({ index: 4, items: [], total: 4 });
   });
 
   it.each([undefined, "false", "0"])(
