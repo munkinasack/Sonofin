@@ -512,7 +512,8 @@ export function serializeGetAppLinkResponse(result: AppLinkResult): string {
 
   return soapEnvelope(
     `<getAppLinkResponse xmlns="${SMAPI_NAMESPACE}">` +
-      `<getAppLinkResult>` +
+      `<getAppLinkResult xsi:type="appLinkResult" ` +
+      `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">` +
       `<authorizeAccount>` +
       `<appUrlStringId>${escapeXmlText(result.appUrlStringId)}</appUrlStringId>` +
       `<deviceLink>` +

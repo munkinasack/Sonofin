@@ -78,6 +78,10 @@ describe("serializeGetAppLinkResponse", () => {
     expect(xml).toContain(
       '<getAppLinkResponse xmlns="http://www.sonos.com/Services/1.1">',
     );
+    expect(xml).toContain(
+      '<getAppLinkResult xsi:type="appLinkResult" ' +
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+    );
     expect(xml).toContain("<authorizeAccount>");
     expect(xml).toContain("<appUrlStringId>SIGN_IN</appUrlStringId>");
     expect(xml).toContain(
