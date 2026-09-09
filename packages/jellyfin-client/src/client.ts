@@ -1,4 +1,7 @@
-import { JellyfinClientError } from "./errors";
+import {
+  JellyfinClientError,
+  type JellyfinClientOperation,
+} from "./errors";
 import {
   endpoint,
   isCharacterLength,
@@ -108,15 +111,26 @@ export class JellyfinAuthenticationClient implements JellyfinAuthentication {
         status === 400 || status === 401 || status === 403
           ? "authentication_failed"
           : "server_rejected",
+      "password_authentication",
     );
-    const accessToken = requiredCredential(payload, "AccessToken");
-    const responseServerId = requiredMetadata(payload, "ServerId");
-    const user = requiredObject(payload, "User");
-    const userId = requiredMetadata(user, "Id");
-    const username = requiredMetadata(user, "Name");
+    let accessToken: string;
+    let responseServerId: string;
+    let userId: string;
+    let username: string;
+    try {
+      accessToken = requiredCredential(payload, "AccessToken");
+      responseServerId = requiredMetadata(payload, "ServerId");
+      const user = requiredObject(payload, "User");
+      userId = requiredMetadata(user, "Id");
+      username = requiredMetadata(user, "Name");
+    } catch (error) {
+      rethrowWithOperation(error, "password_authentication");
+    }
 
     if (responseServerId !== server.serverId) {
-      throw new JellyfinClientError("invalid_server_response");
+      throw new JellyfinClientError("invalid_server_response", {
+        operation: "password_authentication",
+      });
     }
 
     return {
@@ -150,14 +164,21 @@ export class JellyfinAuthenticationClient implements JellyfinAuthentication {
         status === 400 || status === 401 || status === 403
           ? "token_invalid"
           : "server_rejected",
+      "token_authentication",
     );
-    const userId = requiredMetadata(user, "Id");
-    const username = requiredMetadata(user, "Name");
-    if (
-      user.ServerId !== undefined &&
-      requiredMetadata(user, "ServerId") !== server.serverId
-    ) {
-      throw new JellyfinClientError("invalid_server_response");
+    let userId: string;
+    let username: string;
+    try {
+      userId = requiredMetadata(user, "Id");
+      username = requiredMetadata(user, "Name");
+      if (
+        user.ServerId !== undefined &&
+        requiredMetadata(user, "ServerId") !== server.serverId
+      ) {
+        throw new JellyfinClientError("invalid_server_response");
+      }
+    } catch (error) {
+      rethrowWithOperation(error, "token_authentication");
     }
 
     return {
@@ -191,6 +212,7 @@ export class JellyfinAuthenticationClient implements JellyfinAuthentication {
         headers: jsonHeaders(this.#deviceId, input.accessToken),
       },
       () => "server_rejected",
+      "token_revocation",
     );
   }
 
@@ -206,21 +228,36 @@ export class JellyfinAuthenticationClient implements JellyfinAuthentication {
         headers: jsonHeaders(this.#deviceId),
       },
       () => "server_rejected",
+      "server_discovery",
     );
-    if (
-      requiredMetadata(payload, "ProductName").toLowerCase() !==
-      "jellyfin server"
-    ) {
-      throw new JellyfinClientError("invalid_server_response");
+    try {
+      if (
+        requiredMetadata(payload, "ProductName").toLowerCase() !==
+        "jellyfin server"
+      ) {
+        throw new JellyfinClientError("invalid_server_response");
+      }
+      return {
+        endpointBaseUrl,
+        serverUrl: endpointBaseUrl,
+        serverId: requiredMetadata(payload, "Id"),
+        serverName: requiredMetadata(payload, "ServerName"),
+        serverVersion: requiredMetadata(payload, "Version"),
+      };
+    } catch (error) {
+      rethrowWithOperation(error, "server_discovery");
     }
-    return {
-      endpointBaseUrl,
-      serverUrl: endpointBaseUrl,
-      serverId: requiredMetadata(payload, "Id"),
-      serverName: requiredMetadata(payload, "ServerName"),
-      serverVersion: requiredMetadata(payload, "Version"),
-    };
   }
+}
+
+function rethrowWithOperation(
+  error: unknown,
+  operation: JellyfinClientOperation,
+): never {
+  if (error instanceof JellyfinClientError && error.operation === undefined) {
+    throw new JellyfinClientError(error.code, { operation });
+  }
+  throw error;
 }
 
 function publicServer(server: IdentifiedServer): JellyfinServer {

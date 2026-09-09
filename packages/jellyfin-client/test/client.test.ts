@@ -89,6 +89,20 @@ function headersOf(call: FetchCall | undefined): Headers {
 }
 
 describe("JellyfinAuthenticationClient server discovery", () => {
+  it("invokes fetch as a function instead of changing its receiver", async () => {
+    const fetch = function (this: unknown): Promise<Response> {
+      if (this !== undefined) {
+        throw new TypeError("Illegal invocation");
+      }
+      return Promise.resolve(jsonResponse(SERVER_PAYLOAD));
+    } as typeof globalThis.fetch;
+    const client = new JellyfinAuthenticationClient({ fetch });
+
+    await expect(
+      client.identifyServer("https://media.example.com/jellyfin"),
+    ).resolves.toEqual(NORMALIZED_SERVER);
+  });
+
   it("normalizes an HTTPS base URL and preserves a Jellyfin subpath", async () => {
     const transport = scriptedFetch(jsonResponse(SERVER_PAYLOAD));
     const client = new JellyfinAuthenticationClient({
@@ -242,10 +256,14 @@ describe("JellyfinAuthenticationClient server discovery", () => {
       );
       const client = new JellyfinAuthenticationClient({ fetch: transport.fetch });
 
-      await expectErrorCode(
+      const error = await expectErrorCode(
         client.identifyServer("https://media.example.com"),
         "server_rejected",
       );
+      expect(error).toMatchObject({
+        operation: "server_discovery",
+        upstreamStatus: status,
+      });
       expect(transport.calls).toHaveLength(1);
       expect(transport.calls[0]?.init?.redirect).toBe("manual");
     }
@@ -382,7 +400,7 @@ describe("JellyfinAuthenticationClient password authentication", () => {
     );
     const client = new JellyfinAuthenticationClient({ fetch: transport.fetch });
 
-    await expectErrorCode(
+    const error = await expectErrorCode(
       client.authenticateWithPassword({
         serverUrl: "https://media.example.com",
         username: "name",
@@ -390,6 +408,7 @@ describe("JellyfinAuthenticationClient password authentication", () => {
       }),
       "invalid_server_response",
     );
+    expect(error).toMatchObject({ operation: "password_authentication" });
   });
 
   it.each([
@@ -411,7 +430,7 @@ describe("JellyfinAuthenticationClient password authentication", () => {
     );
     const client = new JellyfinAuthenticationClient({ fetch: transport.fetch });
 
-    await expectErrorCode(
+    const error = await expectErrorCode(
       client.authenticateWithPassword({
         serverUrl: "https://media.example.com",
         username: "name",
@@ -419,6 +438,7 @@ describe("JellyfinAuthenticationClient password authentication", () => {
       }),
       "invalid_server_response",
     );
+    expect(error).toMatchObject({ operation: "password_authentication" });
   });
 
   it.each([
@@ -435,7 +455,7 @@ describe("JellyfinAuthenticationClient password authentication", () => {
     );
     const client = new JellyfinAuthenticationClient({ fetch: transport.fetch });
 
-    await expectErrorCode(
+    const error = await expectErrorCode(
       client.authenticateWithPassword({
         serverUrl: "https://media.example.com",
         username: "name",
@@ -443,6 +463,10 @@ describe("JellyfinAuthenticationClient password authentication", () => {
       }),
       code,
     );
+    expect(error).toMatchObject({
+      operation: "password_authentication",
+      upstreamStatus: status,
+    });
     expect(transport.calls).toHaveLength(2);
   });
 });
@@ -506,13 +530,17 @@ describe("JellyfinAuthenticationClient direct-token authentication", () => {
     );
     const client = new JellyfinAuthenticationClient({ fetch: transport.fetch });
 
-    await expectErrorCode(
+    const error = await expectErrorCode(
       client.authenticateWithToken({
         serverUrl: "https://media.example.com",
         accessToken: "access-token",
       }),
       code,
     );
+    expect(error).toMatchObject({
+      operation: "token_authentication",
+      upstreamStatus: status,
+    });
   });
 
   it.each([
@@ -610,6 +638,10 @@ describe("JellyfinAuthenticationClient access-token revocation", () => {
         "server_rejected",
       );
 
+      expect(error).toMatchObject({
+        operation: "token_revocation",
+        upstreamStatus: status,
+      });
       expect(transport.calls).toHaveLength(1);
       expect(transport.calls[0]?.init?.redirect).toBe("manual");
       expect(`${error.message} ${error.stack ?? ""}`).not.toContain(token);

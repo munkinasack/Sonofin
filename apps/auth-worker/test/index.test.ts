@@ -10,6 +10,7 @@ import {
 import {
   handleRequest as handleOnboardingRequest,
   type OnboardingConnectionStorage,
+  type OnboardingDiagnostics,
   type OnboardingLinkService,
 } from "../src";
 
@@ -74,8 +75,15 @@ function handleRequest(
   links: OnboardingLinkService,
   jellyfin: JellyfinAuthentication,
   connections: OnboardingConnectionStorage = createConnections(),
+  diagnostics?: OnboardingDiagnostics,
 ): Promise<Response> {
-  return handleOnboardingRequest(request, links, jellyfin, connections);
+  return handleOnboardingRequest(
+    request,
+    links,
+    jellyfin,
+    connections,
+    diagnostics,
+  );
 }
 
 interface SubmissionFields {
@@ -279,6 +287,45 @@ describe("onboarding Worker", () => {
       expectNoJellyfinContact(jellyfin);
     },
   );
+
+  it("emits only allow-listed Jellyfin failure diagnostics", async () => {
+    const links = createLinks();
+    const jellyfin = createJellyfin();
+    const jellyfinAuthenticationFailed = vi.fn();
+    const diagnostics: OnboardingDiagnostics = {
+      jellyfinAuthenticationFailed,
+    };
+    vi.mocked(jellyfin.authenticateWithPassword).mockRejectedValue(
+      new JellyfinClientError("server_rejected", {
+        operation: "server_discovery",
+        upstreamStatus: 403,
+      }),
+    );
+
+    const response = await handleRequest(
+      postRequest(),
+      links,
+      jellyfin,
+      createConnections(),
+      diagnostics,
+    );
+
+    expect(response.status).toBe(502);
+    expect(jellyfinAuthenticationFailed).toHaveBeenCalledOnce();
+    expect(jellyfinAuthenticationFailed).toHaveBeenCalledWith({
+      code: "server_rejected",
+      operation: "server_discovery",
+      upstreamStatus: 403,
+    });
+    const serializedDiagnostics = JSON.stringify(
+      jellyfinAuthenticationFailed.mock.calls,
+    );
+    expect(serializedDiagnostics).not.toContain(PASSWORD);
+    expect(serializedDiagnostics).not.toContain(DIRECT_TOKEN);
+    expect(serializedDiagnostics).not.toContain(RETURNED_TOKEN);
+    expect(serializedDiagnostics).not.toContain(SERVER_URL);
+    expect(serializedDiagnostics).not.toContain("test-code");
+  });
 
   it("removes a stored direct-token connection without revoking the supplied token when link completion loses a race", async () => {
     const links = createLinks();

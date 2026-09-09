@@ -1,6 +1,8 @@
 import {
   JellyfinClientError,
   type JellyfinClientErrorCode,
+  type JellyfinClientErrorDetails,
+  type JellyfinClientOperation,
 } from "./errors";
 
 const MAX_SERVER_URL_CHARACTERS = 2_048;
@@ -10,6 +12,21 @@ export interface JsonObject {
 }
 
 class ResponseLimitError extends Error {}
+
+function transportError(
+  code: JellyfinClientErrorCode,
+  operation?: JellyfinClientOperation,
+  upstreamStatus?: number,
+): JellyfinClientError {
+  const details: JellyfinClientErrorDetails = {};
+  if (operation !== undefined) {
+    details.operation = operation;
+  }
+  if (upstreamStatus !== undefined) {
+    details.upstreamStatus = upstreamStatus;
+  }
+  return new JellyfinClientError(code, details);
+}
 
 export class JellyfinJsonTransport {
   readonly #fetch: typeof globalThis.fetch;
@@ -30,12 +47,13 @@ export class JellyfinJsonTransport {
     url: string,
     init: RequestInit,
     rejectedCode: (status: number) => JellyfinClientErrorCode,
+    operation?: JellyfinClientOperation,
   ): Promise<JsonObject> {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
-        reject(new JellyfinClientError("server_unreachable"));
+        reject(transportError("server_unreachable", operation));
         controller.abort();
       }, this.#requestTimeoutMs);
     });
@@ -43,18 +61,23 @@ export class JellyfinJsonTransport {
     const request = async (): Promise<JsonObject> => {
       let response: Response;
       try {
-        response = await this.#fetch(url, {
+        const fetch = this.#fetch;
+        response = await fetch(url, {
           ...init,
           redirect: "manual",
           signal: controller.signal,
         });
       } catch {
-        throw new JellyfinClientError("server_unreachable");
+        throw transportError("server_unreachable", operation);
       }
       if (!response.ok) {
-        throw new JellyfinClientError(rejectedCode(response.status));
+        throw transportError(
+          rejectedCode(response.status),
+          operation,
+          response.status,
+        );
       }
-      return this.#readJson(response, controller.signal);
+      return this.#readJson(response, controller.signal, operation);
     };
 
     try {
@@ -71,12 +94,13 @@ export class JellyfinJsonTransport {
     url: string,
     init: RequestInit,
     rejectedCode: (status: number) => JellyfinClientErrorCode,
+    operation?: JellyfinClientOperation,
   ): Promise<void> {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
-        reject(new JellyfinClientError("server_unreachable"));
+        reject(transportError("server_unreachable", operation));
         controller.abort();
       }, this.#requestTimeoutMs);
     });
@@ -84,16 +108,21 @@ export class JellyfinJsonTransport {
     const request = async (): Promise<void> => {
       let response: Response;
       try {
-        response = await this.#fetch(url, {
+        const fetch = this.#fetch;
+        response = await fetch(url, {
           ...init,
           redirect: "manual",
           signal: controller.signal,
         });
       } catch {
-        throw new JellyfinClientError("server_unreachable");
+        throw transportError("server_unreachable", operation);
       }
       if (!response.ok) {
-        throw new JellyfinClientError(rejectedCode(response.status));
+        throw transportError(
+          rejectedCode(response.status),
+          operation,
+          response.status,
+        );
       }
     };
 
@@ -107,7 +136,11 @@ export class JellyfinJsonTransport {
     }
   }
 
-  async #readJson(response: Response, signal: AbortSignal): Promise<JsonObject> {
+  async #readJson(
+    response: Response,
+    signal: AbortSignal,
+    operation?: JellyfinClientOperation,
+  ): Promise<JsonObject> {
     try {
       const contentLength = response.headers.get("content-length");
       if (
@@ -134,7 +167,7 @@ export class JellyfinJsonTransport {
         rejectOnAbort = reject;
       });
       const abort = (): void => {
-        rejectOnAbort?.(new JellyfinClientError("server_unreachable"));
+        rejectOnAbort?.(transportError("server_unreachable", operation));
         void reader.cancel().catch(() => {
           // Cancellation is best effort after a request deadline.
         });
@@ -181,7 +214,11 @@ export class JellyfinJsonTransport {
       if (error instanceof JellyfinClientError) {
         throw error;
       }
-      throw new JellyfinClientError("invalid_server_response");
+      throw transportError(
+        "invalid_server_response",
+        operation,
+        response.status,
+      );
     }
   }
 }

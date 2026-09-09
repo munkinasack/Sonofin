@@ -10,6 +10,17 @@ export type JellyfinClientErrorCode =
   | "token_invalid"
   | "item_not_found";
 
+export type JellyfinClientOperation =
+  | "server_discovery"
+  | "password_authentication"
+  | "token_authentication"
+  | "token_revocation";
+
+export interface JellyfinClientErrorDetails {
+  operation?: JellyfinClientOperation;
+  upstreamStatus?: number;
+}
+
 const ERROR_MESSAGES: Readonly<Record<JellyfinClientErrorCode, string>> = {
   invalid_url: "The Jellyfin server URL is invalid",
   insecure_url: "The Jellyfin server URL must use HTTPS",
@@ -26,10 +37,17 @@ const ERROR_MESSAGES: Readonly<Record<JellyfinClientErrorCode, string>> = {
 /** A stable, credential-safe failure that callers may map to user-facing UI. */
 export class JellyfinClientError extends Error {
   readonly code: JellyfinClientErrorCode;
+  readonly operation: JellyfinClientOperation | undefined;
+  readonly upstreamStatus: number | undefined;
 
-  constructor(code: JellyfinClientErrorCode) {
+  constructor(
+    code: JellyfinClientErrorCode,
+    details: JellyfinClientErrorDetails = {},
+  ) {
     super(ERROR_MESSAGES[code]);
     this.name = "JellyfinClientError";
     this.code = code;
+    this.operation = details.operation;
+    this.upstreamStatus = details.upstreamStatus;
   }
 }

@@ -8,6 +8,8 @@ import {
   JellyfinAuthenticationClient,
   JellyfinClientError,
   type JellyfinAuthentication,
+  type JellyfinClientErrorCode,
+  type JellyfinClientOperation,
   type JellyfinConnection,
 } from "@sonofin/jellyfin-client";
 import {
@@ -45,6 +47,31 @@ export interface OnboardingConnectionStorage {
   store(connection: JellyfinConnection): Promise<{ connectionId: string }>;
   delete(connectionId: string): Promise<boolean>;
 }
+
+export interface OnboardingJellyfinFailure {
+  code: JellyfinClientErrorCode;
+  operation: JellyfinClientOperation | "not_available";
+  upstreamStatus: number | null;
+}
+
+export interface OnboardingDiagnostics {
+  jellyfinAuthenticationFailed(failure: OnboardingJellyfinFailure): void;
+}
+
+const NOOP_DIAGNOSTICS: OnboardingDiagnostics = {
+  jellyfinAuthenticationFailed(): void {},
+};
+
+const CONSOLE_DIAGNOSTICS: OnboardingDiagnostics = {
+  jellyfinAuthenticationFailed(failure): void {
+    console.warn(
+      JSON.stringify({
+        event: "onboarding_jellyfin_failure",
+        ...failure,
+      }),
+    );
+  },
+};
 
 function securityHeaders(contentType: string): Headers {
   return new Headers({
@@ -292,6 +319,7 @@ async function authenticateConnection(
   form: URLSearchParams,
   submission: OnboardingSubmission,
   jellyfin: JellyfinAuthentication,
+  diagnostics: OnboardingDiagnostics,
 ): Promise<AuthenticationAttempt> {
   const password = form.get("password") ?? "";
   const accessToken = form.get("accessToken") ?? "";
@@ -342,6 +370,15 @@ async function authenticateConnection(
     }
   } catch (error) {
     if (error instanceof JellyfinClientError) {
+      try {
+        diagnostics.jellyfinAuthenticationFailed({
+          code: error.code,
+          operation: error.operation ?? "not_available",
+          upstreamStatus: error.upstreamStatus ?? null,
+        });
+      } catch {
+        // Diagnostics must never change the credential-handling path.
+      }
       return {
         outcome: "response",
         response: authenticationErrorResponse(
@@ -403,6 +440,7 @@ async function handlePost(
   links: OnboardingLinkService,
   jellyfin: JellyfinAuthentication,
   connections: OnboardingConnectionStorage,
+  diagnostics: OnboardingDiagnostics,
 ): Promise<Response> {
   if (!isFormContentType(request.headers.get("content-type"))) {
     return textResponse("Expected a form submission", 415);
@@ -443,6 +481,7 @@ async function handlePost(
     form,
     submission,
     jellyfin,
+    diagnostics,
   );
   if (authentication.outcome === "response") {
     return authentication.response;
@@ -491,6 +530,7 @@ async function routeRequest(
   links: OnboardingLinkService,
   jellyfin: JellyfinAuthentication,
   connections: OnboardingConnectionStorage,
+  diagnostics: OnboardingDiagnostics,
 ): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname !== "/onboarding") {
@@ -502,7 +542,7 @@ async function routeRequest(
   }
 
   if (request.method === "POST") {
-    return handlePost(request, links, jellyfin, connections);
+    return handlePost(request, links, jellyfin, connections, diagnostics);
   }
 
   return textResponse("Method not allowed", 405, "GET, POST");
@@ -513,12 +553,13 @@ export async function handleRequest(
   links: OnboardingLinkService,
   jellyfin: JellyfinAuthentication,
   connections: OnboardingConnectionStorage,
+  diagnostics: OnboardingDiagnostics = NOOP_DIAGNOSTICS,
 ): Promise<Response> {
   const requestId = crypto.randomUUID();
 
   try {
     return responseWithRequestId(
-      await routeRequest(request, links, jellyfin, connections),
+      await routeRequest(request, links, jellyfin, connections, diagnostics),
       requestId,
     );
   } catch {
@@ -543,6 +584,12 @@ export default {
       now: () => Math.floor(Date.now() / 1000),
       repository: new D1JellyfinConnectionRepository(env.DB),
     });
-    return handleRequest(request, links, jellyfin, connections);
+    return handleRequest(
+      request,
+      links,
+      jellyfin,
+      connections,
+      CONSOLE_DIAGNOSTICS,
+    );
   },
 } satisfies ExportedHandler<Env>;

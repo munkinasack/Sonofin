@@ -28,6 +28,8 @@ export type {
 export {
   JellyfinClientError,
   type JellyfinClientErrorCode,
+  type JellyfinClientErrorDetails,
+  type JellyfinClientOperation,
 } from "./errors";
 export type {
   JellyfinAuthentication,
