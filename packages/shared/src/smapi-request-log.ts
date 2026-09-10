@@ -1,5 +1,41 @@
 export type SmapiLogOutcome = "success" | "rejected" | "error";
 
+export type SmapiLogContentCategory =
+  | "artists"
+  | "albums"
+  | "tracks"
+  | "playlists"
+  | "search"
+  | "artist"
+  | "album"
+  | "track"
+  | "playlist";
+
+export type SmapiLogContentKind =
+  | "root"
+  | "category"
+  | "artist"
+  | "album"
+  | "track"
+  | "playlist";
+
+export type SmapiItemNotFoundOrigin =
+  | "authenticated_context"
+  | "browse_service"
+  | "metadata_service"
+  | "jellyfin";
+
+export type SmapiLogMethod =
+  | "getAppLink"
+  | "getDeviceAuthToken"
+  | "getLastUpdate"
+  | "getMetadata"
+  | "search"
+  | "getExtendedMetadata"
+  | "getExtendedMetadataText"
+  | "getMediaMetadata"
+  | "getMediaURI";
+
 export type SmapiLogReason =
   | "internal_error"
   | "invalid_soap"
@@ -20,13 +56,11 @@ export interface SmapiRequestLog {
   httpStatus: number;
   durationMs: number;
   outcome: SmapiLogOutcome;
+  contentCategory?: SmapiLogContentCategory;
+  contentKind?: SmapiLogContentKind;
+  itemNotFoundOrigin?: SmapiItemNotFoundOrigin;
   reason?: SmapiLogReason;
-  soapMethod?:
-    | "getAppLink"
-    | "getDeviceAuthToken"
-    | "getLastUpdate"
-    | "getMetadata"
-    | "search";
+  soapMethod?: SmapiLogMethod;
 }
 
 export interface SmapiLogSink {
@@ -49,6 +83,15 @@ export function writeSmapiRequestLog(
     httpStatus: entry.httpStatus,
     durationMs: entry.durationMs,
     outcome: entry.outcome,
+    ...(entry.contentCategory === undefined
+      ? {}
+      : { contentCategory: entry.contentCategory }),
+    ...(entry.contentKind === undefined
+      ? {}
+      : { contentKind: entry.contentKind }),
+    ...(entry.itemNotFoundOrigin === undefined
+      ? {}
+      : { itemNotFoundOrigin: entry.itemNotFoundOrigin }),
     ...(entry.reason === undefined ? {} : { reason: entry.reason }),
     ...(entry.soapMethod === undefined ? {} : { soapMethod: entry.soapMethod }),
   });

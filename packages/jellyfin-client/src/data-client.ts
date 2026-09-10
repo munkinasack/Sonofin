@@ -231,6 +231,7 @@ export class JellyfinApiClient implements JellyfinDataClient {
     const normalized = normalizeLibraryPageOptions(options);
     const query = this.#listQuery(normalized);
     query.set("includeItemTypes", "Playlist");
+    query.set("mediaTypes", "Audio");
     query.set("recursive", "true");
     query.set("sortBy", "SortName");
     query.set("sortOrder", "Ascending");

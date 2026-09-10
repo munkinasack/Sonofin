@@ -8,6 +8,8 @@ import {
 } from "./pagination";
 import {
   SONOS_MAX_COLLECTION_TEXT_CHARACTERS,
+  type GetExtendedMetadataResult,
+  type GetMediaMetadataResult,
   type GetMetadataResult,
   type SearchResult,
   type SonosBrowseCollection,
@@ -367,7 +369,7 @@ function serializeTrackMetadata(metadata: SonosTrackMetadata): string {
   );
 }
 
-function serializeTrack(item: SonosBrowseTrack): string {
+function serializeTrackContents(item: SonosBrowseTrack): string {
   if (item.itemType !== "track") {
     throw new TypeError("itemType must be track for browse tracks");
   }
@@ -376,12 +378,14 @@ function serializeTrack(item: SonosBrowseTrack): string {
   }
 
   return (
-    `<mediaMetadata>` +
     serializeBrowseBase(item, item.itemType) +
     requiredTextElement("mimeType", item.mimeType) +
-    serializeTrackMetadata(item.trackMetadata) +
-    `</mediaMetadata>`
+    serializeTrackMetadata(item.trackMetadata)
   );
+}
+
+function serializeTrack(item: SonosBrowseTrack): string {
+  return `<mediaMetadata>${serializeTrackContents(item)}</mediaMetadata>`;
 }
 
 function serializeBrowseItem(item: SonosBrowseItem): string {
@@ -450,6 +454,35 @@ export function serializeGetMetadataResponse(
       mediaList +
       `</getMetadataResult>` +
       `</getMetadataResponse>`,
+  );
+}
+
+export function serializeGetExtendedMetadataResponse(
+  result: GetExtendedMetadataResult,
+): string {
+  const item = serializeBrowseItem(result);
+  return soapEnvelope(
+    `<getExtendedMetadataResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `<getExtendedMetadataResult>` +
+      item +
+      `</getExtendedMetadataResult>` +
+      `</getExtendedMetadataResponse>`,
+  );
+}
+
+export function serializeGetMediaMetadataResponse(
+  result: GetMediaMetadataResult,
+): string {
+  if (typeof result !== "object" || result === null || result.kind !== "track") {
+    throw new TypeError("getMediaMetadata result must be a track");
+  }
+
+  return soapEnvelope(
+    `<getMediaMetadataResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `<getMediaMetadataResult>` +
+      serializeTrackContents(result) +
+      `</getMediaMetadataResult>` +
+      `</getMediaMetadataResponse>`,
   );
 }
 

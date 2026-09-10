@@ -78,5 +78,11 @@ export interface GetMetadataResult {
   readonly items: readonly SonosBrowseItem[];
 }
 
+/** A single item returned by the SMAPI extended-metadata method. */
+export type GetExtendedMetadataResult = SonosBrowseItem;
+
+/** A single track item returned by the SMAPI media-metadata method. */
+export type GetMediaMetadataResult = SonosBrowseTrack;
+
 /** The SMAPI search response uses the same WSDL media-list shape as browse. */
 export type SearchResult = GetMetadataResult;

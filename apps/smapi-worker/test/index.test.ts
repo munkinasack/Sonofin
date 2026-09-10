@@ -12,9 +12,14 @@ import smapiWorker, {
   handleRequest,
   mapJellyfinErrorToSoapFault,
   resolveSmapiAuthenticatedContext,
+  SmapiBrowseError,
   SonofinBrowseService,
+  SonofinExtendedMetadataService,
+  SonofinMediaMetadataService,
   SonofinSearchService,
   type SmapiDependencies,
+  type SmapiGetExtendedMetadataRequest,
+  type SmapiGetMediaMetadataRequest,
   type SmapiGetMetadataRequest,
   type SmapiJellyfinConnectionResolver,
   type SmapiLinkService,
@@ -122,8 +127,10 @@ function createDependencies(
   return {
     browse: new SonofinBrowseService(),
     createJellyfinDataClient: vi.fn().mockReturnValue(FAKE_DATA_CLIENT),
+    extendedMetadata: new SonofinExtendedMetadataService(),
     jellyfinConnections: createJellyfinConnections(),
     links: createLinks(),
+    mediaMetadata: new SonofinMediaMetadataService(),
     onboardingUrl: "https://auth.example.test/onboarding",
     search: new SonofinSearchService(),
     sonosAuthentication: createSonosAuthentication(),
@@ -147,6 +154,11 @@ const DEVICE_TOKEN_PARAMETERS =
   `<linkDeviceId>${LINK_DEVICE_ID}</linkDeviceId>`;
 const ROOT_METADATA_PARAMETERS =
   "<id>root</id><index>0</index><count>100</count>";
+const ROOT_EXTENDED_METADATA_PARAMETERS = "<id>root</id>";
+const TRACK_MEDIA_METADATA_PARAMETERS = `<id>${encodeSonosContentId({
+  kind: "track",
+  value: "track-id",
+})}</id>`;
 const SEARCH_PARAMETERS =
   "<id>track</id><term>Björk 東京 &amp; 🎵</term>" +
   "<index>0</index><count>10</count>";
@@ -182,6 +194,205 @@ describe("SMAPI Worker", () => {
     expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
   });
 
+  it("routes authenticated getExtendedMetadata through its service boundary", async () => {
+    const service = new SonofinExtendedMetadataService();
+    const getExtendedMetadata = vi.fn(
+      (request: SmapiGetExtendedMetadataRequest) =>
+        service.getExtendedMetadata(request),
+    );
+    const dependencies = createDependencies({
+      extendedMetadata: { getExtendedMetadata },
+    });
+
+    const response = await handleRequest(
+      makeSoapRequest("getExtendedMetadata", {
+        parameters: ROOT_EXTENDED_METADATA_PARAMETERS,
+      }),
+      dependencies,
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain(
+      '<getExtendedMetadataResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        '<getExtendedMetadataResult><mediaCollection><id>root</id>' +
+        '<itemType>container</itemType><title>Sonofin</title>',
+    );
+    expect(getExtendedMetadata).toHaveBeenCalledWith({
+      context: {
+        jellyfin: FAKE_DATA_CLIENT,
+        sonosMapping: {
+          householdId: "Sonos_household",
+          id: "a".repeat(64),
+          jellyfinConnectionId: "J".repeat(32),
+        },
+      },
+      id: "root",
+    });
+    expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it.each([
+    ["missing id", "", false],
+    ["empty id", "<id></id>", true],
+    ["unknown parameter", "<id>root</id><private>secret</private>", false],
+  ] as const)(
+    "rejects getExtendedMetadata with %s",
+    async (_description, parameters, reachesBoundary) => {
+      const getExtendedMetadata = vi
+        .fn()
+        .mockRejectedValue(new SmapiBrowseError("invalid_parameters"));
+      const response = await handleRequest(
+        makeSoapRequest("getExtendedMetadata", { parameters }),
+        createDependencies({
+          extendedMetadata: { getExtendedMetadata },
+        }),
+      );
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(body).toContain("<faultcode>soap:Client</faultcode>");
+      expect(body).toContain("The getExtendedMetadata parameters are invalid");
+      expect(body).not.toContain("secret");
+      expect(getExtendedMetadata).toHaveBeenCalledTimes(
+        reachesBoundary ? 1 : 0,
+      );
+    },
+  );
+
+  it("authenticates before validating or executing getExtendedMetadata", async () => {
+    const getExtendedMetadata = vi.fn();
+    const dependencies = createDependencies({
+      extendedMetadata: { getExtendedMetadata },
+    });
+
+    const response = await handleRequest(
+      makeSoapRequest("getExtendedMetadata", {
+        includeCredentials: false,
+        parameters: "<private>secret</private>",
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("Client.LoginUnauthorized");
+    expect(getExtendedMetadata).not.toHaveBeenCalled();
+    expect(dependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(dependencies.createJellyfinDataClient).not.toHaveBeenCalled();
+  });
+
+  it("routes authenticated getMediaMetadata through its service boundary", async () => {
+    const encodedTrackId = encodeSonosContentId({
+      kind: "track",
+      value: "track-id",
+    });
+    const getMediaMetadata = vi.fn(
+      (request: SmapiGetMediaMetadataRequest) => {
+        void request;
+        return Promise.resolve({
+          id: encodedTrackId,
+          itemType: "track" as const,
+          kind: "track" as const,
+          mimeType: "audio/flac",
+          title: "Track <one>",
+          trackMetadata: {
+            album: "Album & one",
+            canPlay: false,
+            canSkip: false,
+          },
+        });
+      },
+    );
+    const dependencies = createDependencies({
+      mediaMetadata: { getMediaMetadata },
+    });
+
+    const response = await handleRequest(
+      makeSoapRequest("getMediaMetadata", {
+        parameters: TRACK_MEDIA_METADATA_PARAMETERS,
+      }),
+      dependencies,
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain(
+      '<getMediaMetadataResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        `<getMediaMetadataResult><id>${encodedTrackId}</id>` +
+        "<itemType>track</itemType><title>Track &lt;one&gt;</title>" +
+        "<mimeType>audio/flac</mimeType><trackMetadata>" +
+        "<album>Album &amp; one</album><canPlay>false</canPlay>" +
+        "<canSkip>false</canSkip></trackMetadata>" +
+        "</getMediaMetadataResult></getMediaMetadataResponse>",
+    );
+    expect(body).not.toContain("<mediaMetadata>");
+    expect(getMediaMetadata).toHaveBeenCalledWith({
+      context: {
+        jellyfin: FAKE_DATA_CLIENT,
+        sonosMapping: {
+          householdId: "Sonos_household",
+          id: "a".repeat(64),
+          jellyfinConnectionId: "J".repeat(32),
+        },
+      },
+      id: encodedTrackId,
+    });
+    expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it.each([
+    ["missing id", "", false],
+    ["empty id", "<id></id>", true],
+    [
+      "unknown parameter",
+      `${TRACK_MEDIA_METADATA_PARAMETERS}<private>secret</private>`,
+      false,
+    ],
+  ] as const)(
+    "rejects getMediaMetadata with %s",
+    async (_description, parameters, reachesBoundary) => {
+      const getMediaMetadata = vi
+        .fn()
+        .mockRejectedValue(new SmapiBrowseError("invalid_parameters"));
+      const response = await handleRequest(
+        makeSoapRequest("getMediaMetadata", { parameters }),
+        createDependencies({ mediaMetadata: { getMediaMetadata } }),
+      );
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(body).toContain("<faultcode>soap:Client</faultcode>");
+      expect(body).toContain("The getMediaMetadata parameters are invalid");
+      expect(body).not.toContain("secret");
+      expect(getMediaMetadata).toHaveBeenCalledTimes(
+        reachesBoundary ? 1 : 0,
+      );
+    },
+  );
+
+  it("authenticates before validating or executing getMediaMetadata", async () => {
+    const getMediaMetadata = vi.fn();
+    const dependencies = createDependencies({
+      mediaMetadata: { getMediaMetadata },
+    });
+
+    const response = await handleRequest(
+      makeSoapRequest("getMediaMetadata", {
+        includeCredentials: false,
+        parameters: "<private>secret</private>",
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("Client.LoginUnauthorized");
+    expect(getMediaMetadata).not.toHaveBeenCalled();
+    expect(dependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(dependencies.createJellyfinDataClient).not.toHaveBeenCalled();
+  });
+
   it("routes authenticated getMetadata through the browse boundary", async () => {
     const service = new SonofinBrowseService();
     const getMetadata = vi.fn((request: SmapiGetMetadataRequest) =>
@@ -212,7 +423,7 @@ describe("SMAPI Worker", () => {
         "<title>Albums</title><canScroll>false</canScroll>" +
         "<canPlay>false</canPlay><canEnumerate>true</canEnumerate>" +
         "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
-      '<mediaCollection><id>playlists</id><itemType>playlist</itemType>' +
+      '<mediaCollection><id>playlists</id><itemType>container</itemType>' +
         "<title>Playlists</title><canScroll>false</canScroll>" +
         "<canPlay>false</canPlay><canEnumerate>true</canEnumerate>" +
         "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
@@ -717,6 +928,8 @@ describe("SMAPI Worker", () => {
     const logged = `${successMessage ?? ""}${rejectionMessage ?? ""}`;
 
     expect(successLog).toEqual({
+      contentCategory: "track",
+      contentKind: "category",
       durationMs: expect.any(Number),
       event: "smapi.request",
       httpStatus: 200,
@@ -1061,6 +1274,275 @@ describe("SMAPI Worker", () => {
       );
     },
   );
+
+  it.each([
+    ["token_invalid", "Client.AuthTokenExpired"],
+    ["item_not_found", "Client.ItemNotFound"],
+    ["server_unreachable", "Server.ServiceUnavailable"],
+    ["invalid_server_response", "Server.ServiceUnknownError"],
+  ] as const)(
+    "maps getExtendedMetadata Jellyfin %s to the fixed %s fault",
+    async (code, faultCode) => {
+      const response = await handleRequest(
+        makeSoapRequest("getExtendedMetadata", {
+          parameters: `<id>${encodeSonosContentId({ kind: "album", value: "album-id" })}</id>`,
+        }),
+        createDependencies({
+          extendedMetadata: {
+            getExtendedMetadata: vi
+              .fn()
+              .mockRejectedValue(new JellyfinClientError(code)),
+          },
+        }),
+      );
+
+      expect(response.status).toBe(500);
+      expect(await response.text()).toContain(
+        `<faultcode>${faultCode}</faultcode>`,
+      );
+    },
+  );
+
+  it.each([
+    ["token_invalid", "Client.AuthTokenExpired"],
+    ["item_not_found", "Client.ItemNotFound"],
+    ["server_unreachable", "Server.ServiceUnavailable"],
+    ["invalid_server_response", "Server.ServiceUnknownError"],
+  ] as const)(
+    "maps getMediaMetadata Jellyfin %s to the fixed %s fault",
+    async (code, faultCode) => {
+      const response = await handleRequest(
+        makeSoapRequest("getMediaMetadata", {
+          parameters: TRACK_MEDIA_METADATA_PARAMETERS,
+        }),
+        createDependencies({
+          mediaMetadata: {
+            getMediaMetadata: vi
+              .fn()
+              .mockRejectedValue(new JellyfinClientError(code)),
+          },
+        }),
+      );
+
+      expect(response.status).toBe(500);
+      expect(await response.text()).toContain(
+        `<faultcode>${faultCode}</faultcode>`,
+      );
+    },
+  );
+
+  it("classifies and redacts getMediaMetadata item failures", async () => {
+    const sourceId = "private-media-track-id";
+    const encodedId = encodeSonosContentId({
+      kind: "track",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMediaMetadata", {
+        parameters: `<id>${encodedId}</id>`,
+      }),
+      createDependencies({
+        logSink: sink,
+        mediaMetadata: {
+          getMediaMetadata: vi
+            .fn()
+            .mockRejectedValue(new SmapiBrowseError("item_not_found")),
+        },
+      }),
+    );
+    const message = vi.mocked(sink.warn).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(message)).toMatchObject({
+      contentKind: "track",
+      itemNotFoundOrigin: "metadata_service",
+      outcome: "rejected",
+      reason: "item_not_found",
+      soapMethod: "getMediaMetadata",
+    });
+    expect(message).not.toContain(sourceId);
+    expect(message).not.toContain(encodedId);
+  });
+
+  it("redacts arbitrary getMediaMetadata failures", async () => {
+    const secretCanary =
+      "https://user:password@example.test/private?token=media-secret";
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMediaMetadata", {
+        parameters: TRACK_MEDIA_METADATA_PARAMETERS,
+      }),
+      createDependencies({
+        logSink: sink,
+        mediaMetadata: {
+          getMediaMetadata: vi
+            .fn()
+            .mockRejectedValue(new Error(secretCanary)),
+        },
+      }),
+    );
+    const body = await response.text();
+    const logged = [
+      ...vi.mocked(sink.error).mock.calls.flat(),
+      ...vi.mocked(sink.info).mock.calls.flat(),
+      ...vi.mocked(sink.warn).mock.calls.flat(),
+    ].join("");
+
+    expect(response.status).toBe(500);
+    expect(body).toContain("<faultcode>Server.ServiceUnknownError</faultcode>");
+    expect(logged).toContain('"soapMethod":"getMediaMetadata"');
+    expect(logged).toContain('"reason":"internal_error"');
+    expect(body).not.toContain(secretCanary);
+    expect(logged).not.toContain(secretCanary);
+    expect(logged).not.toContain("never-log-this-token");
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies and redacts getExtendedMetadata item failures", async () => {
+    const sourceId = "private-extended-album-id";
+    const encodedId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getExtendedMetadata", {
+        parameters: `<id>${encodedId}</id>`,
+      }),
+      createDependencies({
+        extendedMetadata: {
+          getExtendedMetadata: vi
+            .fn()
+            .mockRejectedValue(new SmapiBrowseError("item_not_found")),
+        },
+        logSink: sink,
+      }),
+    );
+    const message = vi.mocked(sink.warn).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(message)).toMatchObject({
+      contentKind: "album",
+      itemNotFoundOrigin: "metadata_service",
+      outcome: "rejected",
+      reason: "item_not_found",
+      soapMethod: "getExtendedMetadata",
+    });
+    expect(message).not.toContain(sourceId);
+    expect(message).not.toContain(encodedId);
+  });
+
+  it("redacts arbitrary getExtendedMetadata failures", async () => {
+    const secretCanary =
+      "https://user:password@example.test/private?token=extended-secret";
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getExtendedMetadata", {
+        parameters: ROOT_EXTENDED_METADATA_PARAMETERS,
+      }),
+      createDependencies({
+        extendedMetadata: {
+          getExtendedMetadata: vi
+            .fn()
+            .mockRejectedValue(new Error(secretCanary)),
+        },
+        logSink: sink,
+      }),
+    );
+    const body = await response.text();
+    const logged = [
+      ...vi.mocked(sink.error).mock.calls.flat(),
+      ...vi.mocked(sink.info).mock.calls.flat(),
+      ...vi.mocked(sink.warn).mock.calls.flat(),
+    ].join("");
+
+    expect(response.status).toBe(500);
+    expect(body).toContain("<faultcode>Server.ServiceUnknownError</faultcode>");
+    expect(logged).toContain('"soapMethod":"getExtendedMetadata"');
+    expect(logged).toContain('"reason":"internal_error"');
+    expect(body).not.toContain(secretCanary);
+    expect(logged).not.toContain(secretCanary);
+    expect(logged).not.toContain("never-log-this-token");
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies item-not-found origin and target without logging content IDs", async () => {
+    const sourceId = "private-track-id-canary";
+    const encodedTrackId = encodeSonosContentId({
+      kind: "track",
+      value: sourceId,
+    });
+    const localSink = createSink();
+    const localResponse = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedTrackId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({ logSink: localSink }),
+    );
+    const localMessage = vi.mocked(localSink.warn).mock.calls[0]?.[0] ?? "";
+
+    const categorySink = createSink();
+    const categoryResponse = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters: "<id>album</id><index>0</index><count>10</count>",
+      }),
+      createDependencies({ logSink: categorySink }),
+    );
+    const categoryMessage =
+      vi.mocked(categorySink.warn).mock.calls[0]?.[0] ?? "";
+
+    const upstreamSink = createSink();
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const upstreamResponse = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi
+            .fn()
+            .mockRejectedValue(new JellyfinClientError("item_not_found")),
+        },
+        logSink: upstreamSink,
+      }),
+    );
+    const upstreamMessage =
+      vi.mocked(upstreamSink.warn).mock.calls[0]?.[0] ?? "";
+
+    expect(localResponse.status).toBe(500);
+    expect(JSON.parse(localMessage)).toMatchObject({
+      contentKind: "track",
+      itemNotFoundOrigin: "browse_service",
+      reason: "item_not_found",
+      soapMethod: "getMetadata",
+    });
+    expect(categoryResponse.status).toBe(500);
+    expect(JSON.parse(categoryMessage)).toMatchObject({
+      contentCategory: "album",
+      contentKind: "category",
+      itemNotFoundOrigin: "browse_service",
+      reason: "item_not_found",
+      soapMethod: "getMetadata",
+    });
+    expect(upstreamResponse.status).toBe(500);
+    expect(JSON.parse(upstreamMessage)).toMatchObject({
+      contentKind: "album",
+      itemNotFoundOrigin: "jellyfin",
+      reason: "item_not_found",
+      soapMethod: "getMetadata",
+    });
+    expect(
+      `${localMessage}${categoryMessage}${upstreamMessage}`,
+    ).not.toContain(sourceId);
+    expect(localMessage).not.toContain(encodedTrackId);
+    expect(upstreamMessage).not.toContain(encodedAlbumId);
+  });
 
   it("redacts browse failures from SOAP faults and allow-listed logs", async () => {
     const secretCanary =
@@ -1660,16 +2142,41 @@ describe("SMAPI Worker", () => {
     );
   });
 
-  it("returns a SOAP fault for unsupported methods", async () => {
+  it("logs a fixed classification for known unsupported methods", async () => {
+    const sink = createSink();
     const response = await handleRequest(
-      makeSoapRequest("getExtendedMetadata"),
-      createDependencies(),
+      makeSoapRequest("getExtendedMetadataText"),
+      createDependencies({ logSink: sink }),
     );
+    const message = vi.mocked(sink.warn).mock.calls[0]?.[0] ?? "";
 
     expect(response.status).toBe(500);
     expect(await response.text()).toContain(
       "The requested SMAPI method is not supported",
     );
+    expect(JSON.parse(message)).toMatchObject({
+      outcome: "rejected",
+      reason: "unsupported_method",
+      soapMethod: "getExtendedMetadataText",
+    });
+  });
+
+  it("does not log arbitrary unsupported method names", async () => {
+    const privateMethod = "privateCanaryMethod";
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest(privateMethod),
+      createDependencies({ logSink: sink }),
+    );
+    const message = vi.mocked(sink.warn).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(message)).toMatchObject({
+      outcome: "rejected",
+      reason: "unsupported_method",
+    });
+    expect(JSON.parse(message)).not.toHaveProperty("soapMethod");
+    expect(message).not.toContain(privateMethod);
   });
 
   it("allows only POST on the SMAPI route", async () => {

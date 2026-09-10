@@ -5,6 +5,10 @@ export {
 } from "./request-body";
 export {
   writeSmapiRequestLog,
+  type SmapiItemNotFoundOrigin,
+  type SmapiLogContentCategory,
+  type SmapiLogContentKind,
+  type SmapiLogMethod,
   type SmapiLogOutcome,
   type SmapiLogReason,
   type SmapiLogSink,

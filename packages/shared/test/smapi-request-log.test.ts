@@ -45,5 +45,24 @@ describe("writeSmapiRequestLog", () => {
       expect.stringContaining('"reason":"invalid_soap"'),
     );
   });
-});
 
+  it("writes only fixed diagnostic classifications", () => {
+    const sink = createSink();
+
+    writeSmapiRequestLog(sink, {
+      contentCategory: "album",
+      contentKind: "category",
+      durationMs: 3,
+      httpStatus: 500,
+      itemNotFoundOrigin: "jellyfin",
+      outcome: "rejected",
+      reason: "item_not_found",
+      requestId: "request-3",
+      soapMethod: "getMetadata",
+    });
+
+    expect(sink.warn).toHaveBeenCalledWith(
+      '{"event":"smapi.request","requestId":"request-3","httpStatus":500,"durationMs":3,"outcome":"rejected","contentCategory":"album","contentKind":"category","itemNotFoundOrigin":"jellyfin","reason":"item_not_found","soapMethod":"getMetadata"}',
+    );
+  });
+});

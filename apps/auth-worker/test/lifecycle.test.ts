@@ -32,6 +32,8 @@ import {
 import {
   handleRequest as handleSmapi,
   SonofinBrowseService,
+  SonofinExtendedMetadataService,
+  SonofinMediaMetadataService,
   SonofinSearchService,
 } from "../../smapi-worker/src";
 import { handleRequest as handleOnboarding } from "../src";
@@ -288,9 +290,11 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     const dependencies = {
       browse: new SonofinBrowseService(),
       createJellyfinDataClient,
+      extendedMetadata: new SonofinExtendedMetadataService(),
       jellyfinConnections: smapiConnections,
       links,
       logSink,
+      mediaMetadata: new SonofinMediaMetadataService(),
       onboardingUrl: "https://auth.example.test/onboarding",
       search: new SonofinSearchService(),
       sonosAuthentication,
@@ -467,7 +471,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
       "<id>albums</id><itemType>albumList</itemType><title>Albums</title>",
     );
     expect(rootBrowseXml).toContain(
-      "<id>playlists</id><itemType>playlist</itemType><title>Playlists</title>",
+      "<id>playlists</id><itemType>container</itemType><title>Playlists</title>",
     );
     expect(rootBrowseXml).toContain(
       "<id>search</id><itemType>container</itemType><title>Search</title>",

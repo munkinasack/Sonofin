@@ -88,10 +88,10 @@ separate explicit authorization when they are run.
 Use the task order within each milestone. The cross-milestone critical path is:
 
 ```text
-7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 ... 8.5
-                          -> 9.1 -> 9.2 -> 10.1 ... 10.6
-                                               -> 11.1 ... 11.6
-                                                          -> 12.1 ... 12.6
+7.1 + 7.2 -> 7.3 ... 7.8 -> 7.8a -> 7.8b -> 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
+                                                                   -> 9.1 -> 9.2 -> 10.1 ... 10.6
+                                                                                        -> 11.1 ... 11.6
+                                                                                                   -> 12.1 ... 12.6
 ```
 
 Security research in 11.1 can begin earlier as a separate read-only task, but
@@ -223,19 +223,109 @@ new album-track task before 7.6.
 - Test all categories, no results, mixed Unicode, invalid terms/categories,
   item-ID round trips, safe faults, and parser/serializer element order.
 
+### [x] Task 7.8a — Mandatory `getExtendedMetadata` browse compatibility
+
+**Budget:** 2.5–4 hours. **Prerequisites:** 7.3–7.8. **Discovered by:** 7.9
+real-system verification.
+
+- Implement the required Sonos `getExtendedMetadata` core method with an exact,
+  WSDL-ordered response serializer and an authenticated Worker route.
+- Return the same conservative metadata already used by browse/search for
+  supported root, category, artist, album, and track IDs. Also handle playlist
+  IDs defensively if the separate Sonos playlist-extended-metadata capability is
+  enabled. Resolve Jellyfin entities through `getItemMetadata()` and require the
+  returned kind to match the content ID; do not add related text, actions,
+  artwork delivery, or playback behavior.
+- Preserve bounded input parsing and credential-safe fault mapping. Logs may
+  contain only fixed method/content/failure-origin classifications and must not
+  contain item IDs, request bodies, URLs, user data, or credentials.
+- Test every supported ID kind, malformed/wrong-kind/deleted items, invalid
+  credentials, upstream failures, XML order, and redaction. Run `pnpm check`
+  before resuming Task 7.9.
+
+**Evidence:** during the Task 7.9 Sonos sandbox run against Jellyfin 10.11.11,
+the Jellyfin-backed `getMetadata` requests succeeded, after which Sonos issued
+`getExtendedMetadata` and Sonofin returned unsupported-method faults. This is
+the mandatory-method case anticipated by the explicitly unassigned backlog.
+The tested fix was deployed as SMAPI Worker version
+`1280cc12-04e6-4b5c-8ee2-5361ee7ae195`; a repeated real-app trace showed HTTP
+200 responses for category and album `getExtendedMetadata` calls without
+capturing item IDs, account data, server details, or credentials.
+
+### [x] Task 7.8b — Mandatory `getMediaMetadata` browse compatibility
+
+**Budget:** 2.5–3.5 hours. **Prerequisites:** 7.5 and 7.8a. **Discovered by:**
+7.9 real-system verification.
+
+- Move the bounded metadata-only substance of former Task 8.2 ahead of the
+  Milestone 7 real-system gate. Add the exact `getMediaMetadata` response
+  serializer and an authenticated, `id`-only Worker route backed by
+  `getItemMetadata()`.
+- Require a track-kind content ID and an exact returned-kind match. Reuse the
+  browse track formatter so album, playlist, search, extended-metadata, and
+  media-metadata representations remain identical, including conservative
+  `canPlay: false` behavior until the playback security design and media URI
+  integration are complete.
+- Return the WSDL `mediaMetadata` fields directly inside
+  `getMediaMetadataResult`; do not add a nested `mediaMetadata` wrapper. Keep
+  `getMediaURI`, playback negotiation, URLs, headers, transcoding, streaming,
+  and collection metadata out of scope.
+- Test metadata completeness, MIME/duration conversion, malformed and
+  wrong-kind IDs, not found, invalid credentials, upstream failures, XML order,
+  exact wrapping, and redaction. Run `pnpm check` before resuming Task 7.9.
+
+**Evidence:** the exact serializer, authenticated route, shared formatter, safe
+fault mapping, and redaction coverage passed the full repository check: 27 test
+files with 711 unit/cross-Worker tests, seven isolated D1 tests, and dry-run
+builds for both Workers. The tested implementation was deployed as SMAPI Worker
+version `e25068eb-8d2a-47f5-a986-70d27041f34f`. The live trace has so far shown
+only safe `ItemNotFound` handling for non-track category/playlist IDs; a
+positive real-app track-ID call remains part of Task 7.9 and is not claimed as
+evidence here. `getMediaMetadata` is playback-stage compatibility, not the
+cause or fix for browse enumeration.
+
 ### [ ] Task 7.9 — Milestone 7 real-system browse verification
 
-**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8 and a ready Jellyfin server,
+**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8b and a ready Jellyfin server,
 Sonos test household/service registration, representative music, and test
 credentials.
 
 - Run onboarding and browse every Milestone 7 branch from a real Sonos app.
 - Verify paging with a collection larger than one page and search all four
-  categories. Capture only credential-free evidence.
+  categories. For a Sandbox integration, run the app search check from a
+  Windows/Mac desktop or S1 app using Classic Search because Sonos does not
+  expose Universal Search to Sandbox mobile/Web apps; Preview may instead use
+  the configured Universal Search presentation map. A direct SOAP search is a
+  useful diagnostic but does not replace this real-app gate. Capture only
+  credential-free evidence.
+- Before the search check, configure and send the Sonos Search capability with
+  one Personal catalog context, no `all` or duplicate-library context, and these
+  exact mappings: `artists` to `artist`, `albums` to `album`, `tracks` to
+  `track`, and `playlists` to `playlist`. Re-send after every change and allow
+  up to 10 minutes for the Sandbox configuration to propagate.
 - Fix only bounded defects that fit the reserved repair window; create a new
   defect task for larger protocol or product changes.
 - Update the README with the verified browse flow and mark Milestone 7 complete
   only if the real-system checks and `pnpm check` both pass.
+
+**Evidence so far:** onboarding, the root branches, artist albums, and paging
+past 100 artists passed against Jellyfin 10.11.11. Changing the read-only root
+Playlists category from Sonos's special editable `playlist` type to the generic
+`container` type was deployed as SMAPI Worker version
+`48255e2d-8cc1-4cc1-b70c-7fc304b6c9ea`; the user then confirmed that the
+playlist listing appears and its track titles are visible. Those tracks are
+greyed out as expected while the shared pre-playback policy remains
+`canPlay: false`; enabling them belongs with the safe `getMediaURI` work in
+Task 8.4. The catalog was additionally restricted to Jellyfin's Audio playlist
+media type to avoid advertising video playlists whose entries cannot satisfy
+the strict track contract. That repair passed the full repository check and was
+deployed as SMAPI Worker version `cc257452-f62c-4952-9321-b54aef6c4601`; the
+first repeated category/playlist trace returned HTTP 200 without the earlier
+generic playlist errors. Global album track display remains under a fresh user
+check even though traced album `getMetadata` and `getExtendedMetadata` calls
+return HTTP 200. The observed mobile Sandbox session sent no `search` SOAP
+request, so search remains unverified until the required capability map and a
+supported Classic Search or Preview client are used.
 
 ## Milestone 8 — Playback
 
@@ -260,16 +350,15 @@ Jellyfin token appears in a URI.
 - Check in sanitized MP3, AAC, FLAC, and transcode playback-info fixtures for
   later tasks. Do not add a production playback route in this task.
 
-### [ ] Task 8.2 — `getMediaMetadata`
+### [x] Task 8.2 — `getMediaMetadata` (moved to Task 7.8b)
 
-**Budget:** 2.5–3.5 hours. **Prerequisites:** 7.5 and 8.1.
+**Status:** implemented and verified by Task 7.8b; no separate implementation
+remains. Real-app validation stays in Task 7.9.
 
-- Add exact `getMediaMetadata` response serialization and an authenticated
-  Worker route backed by `getItemMetadata()`.
-- Require a track-kind content ID and reuse the browse track formatter so the
-  same item has consistent metadata everywhere.
-- Test metadata completeness, MIME/duration conversion, wrong-kind/malformed
-  IDs, not found, invalid token, upstream failure, XML order, and redaction.
+- Task 7.8b owns the exact serializer, authenticated route, content-ID checks,
+  shared formatting, fault mapping, and redaction tests.
+- Task 8.4 owns any post-ADR change that makes those track representations
+  playable once a safe media URI can also be returned.
 
 ### [ ] Task 8.3 — Jellyfin playback-target resolver
 
@@ -289,10 +378,12 @@ Jellyfin token appears in a URI.
 
 ### [ ] Task 8.4 — `getMediaURI` integration
 
-**Budget:** 3–4 hours. **Prerequisites:** 8.2 and 8.3.
+**Budget:** 3–4 hours. **Prerequisites:** 7.8b and 8.3.
 
 - Add exact `getMediaURI` serialization, including an ordered list of permitted
   `httpHeader` entries, and route authenticated track IDs through the resolver.
+- Only after that safe route is available, update the shared track metadata
+  policy consistently so playable tracks no longer advertise `canPlay: false`.
 - Map all invalid-item, invalid-token, no-compatible-stream, timeout, and
   upstream failures to credential-safe Sonos faults.
 - Verify that the Worker returns metadata only and never fetches or proxies the
@@ -563,8 +654,8 @@ credential-safe evidence.
   against current Sonos primary documentation/schema where applicable. Use
   explicit placeholders for partner-assigned IDs or unavailable values.
 - If real registration proves an unassigned method such as
-  `getExtendedMetadata` is mandatory, create a separate bounded implementation
-  task; do not hide it inside this documentation task.
+  `getExtendedMetadataText` is mandatory, create a separate bounded
+  implementation task; do not hide it inside this documentation task.
 
 ### [ ] Task 12.4 — Requirements, compatibility, and troubleshooting
 
@@ -611,7 +702,7 @@ The original roadmap does not assign the following features to Milestones
 registration or compatibility gate proves one mandatory; in that case, add a
 new bounded task before the affected gate:
 
-- `getExtendedMetadata` and `getExtendedMetadataText`
+- `getExtendedMetadataText`
 - `reportAccountAction` and playback reporting
 - favorites and playlist mutation
 - authenticated artwork delivery

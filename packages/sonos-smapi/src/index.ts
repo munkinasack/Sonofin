@@ -21,6 +21,8 @@ export {
 } from "./pagination";
 export { SONOS_MAX_COLLECTION_TEXT_CHARACTERS } from "./browse";
 export type {
+  GetExtendedMetadataResult,
+  GetMediaMetadataResult,
   GetMetadataResult,
   SearchResult,
   SonosBrowseCollection,
@@ -44,7 +46,9 @@ export {
 export {
   serializeGetAppLinkResponse,
   serializeGetDeviceAuthTokenResponse,
+  serializeGetExtendedMetadataResponse,
   serializeGetLastUpdateResponse,
+  serializeGetMediaMetadataResponse,
   serializeGetMetadataResponse,
   serializeSearchResponse,
   serializeSoapFault,

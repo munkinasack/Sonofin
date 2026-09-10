@@ -100,7 +100,7 @@ describe("SonofinBrowseService", () => {
           canPlay: false,
           canScroll: false,
           id: "playlists",
-          itemType: "playlist",
+          itemType: "container",
           kind: "collection",
           title: "Playlists",
         },

@@ -17,6 +17,7 @@ import {
   type GetMetadataResult,
   type SonosBrowseCollection,
   type SonosBrowseItem,
+  type SonosContentId,
   type SonosPagination,
 } from "@sonofin/sonos-smapi";
 
@@ -70,10 +71,39 @@ function rootCollection(
 const ROOT_MENU_ITEMS = Object.freeze([
   rootCollection("artists", "Artists", "container"),
   rootCollection("albums", "Albums", "albumList"),
-  rootCollection("playlists", "Playlists", "playlist"),
+  // This is a read-only category, not Sonos's editable user-playlist root.
+  // Individual Jellyfin playlists retain itemType="playlist" below it.
+  rootCollection("playlists", "Playlists", "container"),
   rootCollection("search", "Search", "container"),
 ]);
+const ROOT_COLLECTION = Object.freeze({
+  canAddToFavorites: false,
+  canEnumerate: true,
+  canPlay: false,
+  canScroll: false,
+  id: "root",
+  itemType: "container" as const,
+  kind: "collection" as const,
+  title: "Sonofin",
+});
 const SONOS_LINE_BREAK_PATTERN = /[\n\r\u0085\u2028\u2029]/u;
+
+/** Returns the canonical representation for a non-Jellyfin browse node. */
+export function getStaticSonosBrowseCollection(
+  contentId: SonosContentId,
+): SonosBrowseCollection | undefined {
+  if (contentId.kind === "root") {
+    return ROOT_COLLECTION;
+  }
+  if (contentId.kind !== "category") {
+    return undefined;
+  }
+
+  return (
+    ROOT_MENU_ITEMS.find((item) => item.id === contentId.value) ??
+    SMAPI_SEARCH_CATEGORY_ITEMS.find((item) => item.id === contentId.value)
+  );
+}
 
 function isXmlText(value: unknown): value is string {
   if (typeof value !== "string" || value.trim() === "") {

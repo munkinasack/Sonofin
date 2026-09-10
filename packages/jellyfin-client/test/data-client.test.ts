@@ -444,6 +444,7 @@ describe("JellyfinApiClient official request contracts", () => {
       ...COMMON_PAGE_QUERY,
       parentId: "library/id",
       includeItemTypes: "Playlist",
+      mediaTypes: "Audio",
       recursive: "true",
       sortBy: "SortName",
       sortOrder: "Ascending",

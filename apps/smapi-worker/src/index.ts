@@ -16,16 +16,23 @@ import {
   readUtf8Body,
   RequestBodyTooLargeError,
   writeSmapiRequestLog,
+  type SmapiItemNotFoundOrigin,
+  type SmapiLogContentCategory,
+  type SmapiLogContentKind,
+  type SmapiLogMethod,
   type SmapiLogOutcome,
   type SmapiLogReason,
   type SmapiLogSink,
 } from "@sonofin/shared";
 import { SonosAuthenticationService } from "@sonofin/sonos-auth";
 import {
+  decodeSonosContentId,
   parseSoapRequest,
   serializeGetAppLinkResponse,
   serializeGetDeviceAuthTokenResponse,
+  serializeGetExtendedMetadataResponse,
   serializeGetLastUpdateResponse,
+  serializeGetMediaMetadataResponse,
   serializeGetMetadataResponse,
   serializeSearchResponse,
   serializeSoapFault,
@@ -46,6 +53,14 @@ import {
   SonofinBrowseService,
   type SmapiBrowseService,
 } from "./browse-service";
+import {
+  SonofinExtendedMetadataService,
+  type SmapiExtendedMetadataService,
+} from "./extended-metadata-service";
+import {
+  SonofinMediaMetadataService,
+  type SmapiMediaMetadataService,
+} from "./media-metadata-service";
 import {
   SmapiSearchError,
   SonofinSearchService,
@@ -69,10 +84,21 @@ export {
   SmapiBrowseError,
   SonofinBrowseService,
   formatJellyfinEntityAsSonosBrowseCollection,
+  getStaticSonosBrowseCollection,
   type SmapiBrowseErrorCode,
   type SmapiBrowseService,
   type SmapiGetMetadataRequest,
 } from "./browse-service";
+export {
+  SonofinExtendedMetadataService,
+  type SmapiExtendedMetadataService,
+  type SmapiGetExtendedMetadataRequest,
+} from "./extended-metadata-service";
+export {
+  SonofinMediaMetadataService,
+  type SmapiGetMediaMetadataRequest,
+  type SmapiMediaMetadataService,
+} from "./media-metadata-service";
 export {
   SmapiSearchError,
   SonofinSearchService,
@@ -89,7 +115,9 @@ const XML_CONTENT_TYPE = "text/xml; charset=utf-8";
 type SupportedMethod =
   | "getAppLink"
   | "getDeviceAuthToken"
+  | "getExtendedMetadata"
   | "getLastUpdate"
+  | "getMediaMetadata"
   | "getMetadata"
   | "search";
 
@@ -153,7 +181,9 @@ export interface SmapiSonosAuthentication
 export interface SmapiDependencies
   extends SmapiAuthenticatedContextDependencies {
   browse: SmapiBrowseService;
+  extendedMetadata: SmapiExtendedMetadataService;
   links: SmapiLinkService;
+  mediaMetadata: SmapiMediaMetadataService;
   onboardingUrl: string;
   sonosAuthentication: SmapiSonosAuthentication;
   search: SmapiSearchService;
@@ -162,10 +192,13 @@ export interface SmapiDependencies
 }
 
 interface RequestResult {
+  contentCategory?: SmapiLogContentCategory;
+  contentKind?: SmapiLogContentKind;
+  itemNotFoundOrigin?: SmapiItemNotFoundOrigin;
   outcome: SmapiLogOutcome;
   reason?: SmapiLogReason;
   response: Response;
-  soapMethod?: SupportedMethod;
+  soapMethod?: SmapiLogMethod;
 }
 
 function xmlResponse(xml: string, status = 200): Response {
@@ -202,8 +235,13 @@ function soapFault(
 function safeSoapFailure(
   method: SupportedMethod,
   fault: SmapiSafeSoapFault,
+  diagnostics: Pick<
+    RequestResult,
+    "contentCategory" | "contentKind" | "itemNotFoundOrigin"
+  > = {},
 ): RequestResult {
   return {
+    ...diagnostics,
     outcome: fault.outcome,
     reason: fault.reason,
     response: soapFault(fault.message, fault.faultCode),
@@ -223,6 +261,20 @@ const BROWSE_ITEM_NOT_FOUND_FAULT = {
   message: "The requested item is not available",
   outcome: "rejected",
   reason: "item_not_found",
+} as const satisfies SmapiSafeSoapFault;
+
+const INVALID_EXTENDED_METADATA_PARAMETERS_FAULT = {
+  faultCode: "soap:Client",
+  message: "The getExtendedMetadata parameters are invalid",
+  outcome: "rejected",
+  reason: "invalid_parameters",
+} as const satisfies SmapiSafeSoapFault;
+
+const INVALID_MEDIA_METADATA_PARAMETERS_FAULT = {
+  faultCode: "soap:Client",
+  message: "The getMediaMetadata parameters are invalid",
+  outcome: "rejected",
+  reason: "invalid_parameters",
 } as const satisfies SmapiSafeSoapFault;
 
 const INVALID_SEARCH_PARAMETERS_FAULT = {
@@ -253,6 +305,28 @@ function searchErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
   return mapJellyfinErrorToSoapFault(error);
 }
 
+function extendedMetadataErrorToSoapFault(
+  error: unknown,
+): SmapiSafeSoapFault {
+  if (!(error instanceof SmapiBrowseError)) {
+    return mapJellyfinErrorToSoapFault(error);
+  }
+
+  return error.code === "invalid_parameters"
+    ? INVALID_EXTENDED_METADATA_PARAMETERS_FAULT
+    : BROWSE_ITEM_NOT_FOUND_FAULT;
+}
+
+function mediaMetadataErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
+  if (!(error instanceof SmapiBrowseError)) {
+    return mapJellyfinErrorToSoapFault(error);
+  }
+
+  return error.code === "invalid_parameters"
+    ? INVALID_MEDIA_METADATA_PARAMETERS_FAULT
+    : BROWSE_ITEM_NOT_FOUND_FAULT;
+}
+
 function isXmlContentType(value: string | null): boolean {
   if (value === null) {
     return false;
@@ -266,10 +340,78 @@ function isSupportedMethod(method: string): method is SupportedMethod {
   return (
     method === "getAppLink" ||
     method === "getDeviceAuthToken" ||
+    method === "getExtendedMetadata" ||
     method === "getLastUpdate" ||
+    method === "getMediaMetadata" ||
     method === "getMetadata" ||
     method === "search"
   );
+}
+
+function classifyKnownUnsupportedMethod(
+  method: string,
+): Exclude<SmapiLogMethod, SupportedMethod> | undefined {
+  switch (method) {
+    case "getExtendedMetadataText":
+    case "getMediaURI":
+      return method;
+    default:
+      return undefined;
+  }
+}
+
+type ContentClassification = Pick<
+  RequestResult,
+  "contentCategory" | "contentKind"
+>;
+
+function classifyContent(
+  value: unknown,
+): ContentClassification | undefined {
+  try {
+    const contentId = decodeSonosContentId(value);
+    if (contentId.kind === "root") {
+      return { contentKind: "root" };
+    }
+
+    return contentId.kind === "category"
+      ? { contentCategory: contentId.value, contentKind: "category" }
+      : { contentKind: contentId.kind };
+  } catch {
+    return undefined;
+  }
+}
+
+function classifySearchContent(
+  value: unknown,
+): ContentClassification | undefined {
+  switch (value) {
+    case "artist":
+    case "album":
+    case "track":
+    case "playlist":
+      return { contentCategory: value, contentKind: "category" };
+    default:
+      return undefined;
+  }
+}
+
+function itemNotFoundDiagnostics(
+  fault: SmapiSafeSoapFault,
+  origin: SmapiItemNotFoundOrigin,
+  content: ContentClassification | undefined,
+): Pick<
+  RequestResult,
+  "contentCategory" | "contentKind" | "itemNotFoundOrigin"
+> {
+  if (fault.reason !== "item_not_found") {
+    return {};
+  }
+
+  return {
+    ...(content ?? {}),
+    itemNotFoundOrigin: origin,
+  };
 }
 
 const GET_METADATA_PARAMETER_ORDER = [
@@ -279,6 +421,13 @@ const GET_METADATA_PARAMETER_ORDER = [
   "recursive",
 ] as const;
 const SEARCH_PARAMETER_ORDER = ["id", "term", "index", "count"] as const;
+
+function hasOnlyIdParameter(
+  parameters: Readonly<Record<string, string>>,
+): boolean {
+  const names = Object.keys(parameters);
+  return names.length === 1 && names[0] === "id";
+}
 
 function hasValidGetMetadataParameterShape(
   parameters: Readonly<Record<string, string>>,
@@ -546,14 +695,95 @@ async function handleGetMetadata(
       recursive: parameters.recursive,
     });
     return {
+      ...(classifyContent(parameters.id) ?? {}),
       outcome: "success",
       response: xmlResponse(serializeGetMetadataResponse(result)),
       soapMethod: "getMetadata",
     };
   } catch (error) {
+    const fault = browseErrorToSoapFault(error);
     return safeSoapFailure(
       "getMetadata",
-      browseErrorToSoapFault(error),
+      fault,
+      itemNotFoundDiagnostics(
+        fault,
+        error instanceof SmapiBrowseError
+          ? "browse_service"
+          : "jellyfin",
+        classifyContent(parameters.id),
+      ),
+    );
+  }
+}
+
+async function handleGetExtendedMetadata(
+  parameters: Readonly<Record<string, string>>,
+  context: SmapiAuthenticatedRequestContext,
+  dependencies: SmapiDependencies,
+): Promise<RequestResult> {
+  try {
+    if (!hasOnlyIdParameter(parameters)) {
+      throw new SmapiBrowseError("invalid_parameters");
+    }
+
+    const result = await dependencies.extendedMetadata.getExtendedMetadata({
+      context,
+      id: parameters.id,
+    });
+    return {
+      ...(classifyContent(parameters.id) ?? {}),
+      outcome: "success",
+      response: xmlResponse(serializeGetExtendedMetadataResponse(result)),
+      soapMethod: "getExtendedMetadata",
+    };
+  } catch (error) {
+    const fault = extendedMetadataErrorToSoapFault(error);
+    return safeSoapFailure(
+      "getExtendedMetadata",
+      fault,
+      itemNotFoundDiagnostics(
+        fault,
+        error instanceof SmapiBrowseError
+          ? "metadata_service"
+          : "jellyfin",
+        classifyContent(parameters.id),
+      ),
+    );
+  }
+}
+
+async function handleGetMediaMetadata(
+  parameters: Readonly<Record<string, string>>,
+  context: SmapiAuthenticatedRequestContext,
+  dependencies: SmapiDependencies,
+): Promise<RequestResult> {
+  try {
+    if (!hasOnlyIdParameter(parameters)) {
+      throw new SmapiBrowseError("invalid_parameters");
+    }
+
+    const result = await dependencies.mediaMetadata.getMediaMetadata({
+      context,
+      id: parameters.id,
+    });
+    return {
+      ...(classifyContent(parameters.id) ?? {}),
+      outcome: "success",
+      response: xmlResponse(serializeGetMediaMetadataResponse(result)),
+      soapMethod: "getMediaMetadata",
+    };
+  } catch (error) {
+    const fault = mediaMetadataErrorToSoapFault(error);
+    return safeSoapFailure(
+      "getMediaMetadata",
+      fault,
+      itemNotFoundDiagnostics(
+        fault,
+        error instanceof SmapiBrowseError
+          ? "metadata_service"
+          : "jellyfin",
+        classifyContent(parameters.id),
+      ),
     );
   }
 }
@@ -576,12 +806,22 @@ async function handleSearch(
       term: parameters.term,
     });
     return {
+      ...(classifySearchContent(parameters.id) ?? {}),
       outcome: "success",
       response: xmlResponse(serializeSearchResponse(result)),
       soapMethod: "search",
     };
   } catch (error) {
-    return safeSoapFailure("search", searchErrorToSoapFault(error));
+    const fault = searchErrorToSoapFault(error);
+    return safeSoapFailure(
+      "search",
+      fault,
+      itemNotFoundDiagnostics(
+        fault,
+        "jellyfin",
+        classifySearchContent(parameters.id),
+      ),
+    );
   }
 }
 
@@ -667,15 +907,19 @@ async function routeRequest(
   }
 
   if (!isSupportedMethod(parsed.method)) {
+    const soapMethod = classifyKnownUnsupportedMethod(parsed.method);
     return {
       outcome: "rejected",
       reason: "unsupported_method",
       response: soapFault("The requested SMAPI method is not supported"),
+      ...(soapMethod === undefined ? {} : { soapMethod }),
     };
   }
 
   if (
+    parsed.method === "getExtendedMetadata" ||
     parsed.method === "getLastUpdate" ||
+    parsed.method === "getMediaMetadata" ||
     parsed.method === "getMetadata" ||
     parsed.method === "search"
   ) {
@@ -684,11 +928,43 @@ async function routeRequest(
       dependencies,
     );
     if (authenticated.outcome === "failure") {
-      return safeSoapFailure(parsed.method, authenticated.fault);
+      const content =
+        parsed.method === "getMetadata" ||
+        parsed.method === "getExtendedMetadata" ||
+        parsed.method === "getMediaMetadata"
+          ? classifyContent(parsed.parameters.id)
+          : parsed.method === "search"
+            ? classifySearchContent(parsed.parameters.id)
+            : undefined;
+      return safeSoapFailure(
+        parsed.method,
+        authenticated.fault,
+        itemNotFoundDiagnostics(
+          authenticated.fault,
+          "authenticated_context",
+          content,
+        ),
+      );
     }
 
     if (parsed.method === "getLastUpdate") {
       return handleGetLastUpdate(authenticated.context);
+    }
+
+    if (parsed.method === "getExtendedMetadata") {
+      return handleGetExtendedMetadata(
+        parsed.parameters,
+        authenticated.context,
+        dependencies,
+      );
+    }
+
+    if (parsed.method === "getMediaMetadata") {
+      return handleGetMediaMetadata(
+        parsed.parameters,
+        authenticated.context,
+        dependencies,
+      );
     }
 
     if (parsed.method === "search") {
@@ -743,6 +1019,15 @@ export async function handleRequest(
     httpStatus: response.status,
     outcome: result.outcome,
     requestId,
+    ...(result.contentCategory === undefined
+      ? {}
+      : { contentCategory: result.contentCategory }),
+    ...(result.contentKind === undefined
+      ? {}
+      : { contentKind: result.contentKind }),
+    ...(result.itemNotFoundOrigin === undefined
+      ? {}
+      : { itemNotFoundOrigin: result.itemNotFoundOrigin }),
     ...(result.reason === undefined ? {} : { reason: result.reason }),
     ...(result.soapMethod === undefined
       ? {}
@@ -806,7 +1091,9 @@ export default {
             connection,
           }),
         jellyfinConnections,
+        extendedMetadata: new SonofinExtendedMetadataService(),
         links,
+        mediaMetadata: new SonofinMediaMetadataService(),
         onboardingUrl: env.ONBOARDING_URL ?? "",
         sonosAuthentication,
         search: new SonofinSearchService(),
