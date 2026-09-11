@@ -61,6 +61,7 @@ describe("serializeSearchResponse", () => {
         '<displayType>grid</displayType><title>夜の Café &amp; &lt;Live&gt;</title>' +
         '<artist>Björk 東京</artist><artistId>artist-日本</artistId>' +
         '<canPlay>true</canPlay><canEnumerate>true</canEnumerate>' +
+        '<albumArtURI></albumArtURI>' +
         '<total>9</total></mediaCollection>' +
         '<mediaMetadata><id>track-🎵</id><itemType>track</itemType>' +
         '<displayType>list</displayType><title>Canción 東京 🎧</title>' +

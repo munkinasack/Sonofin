@@ -7,6 +7,7 @@ import { JellyfinConnectionService } from "@sonofin/connections";
 import { AesGcmTokenCipher } from "@sonofin/crypto";
 import {
   JellyfinApiClient,
+  JellyfinClientError,
   type JellyfinConnection,
   type JellyfinDataClient,
 } from "@sonofin/jellyfin-client";
@@ -17,6 +18,7 @@ import {
   RequestBodyTooLargeError,
   writeSmapiRequestLog,
   type SmapiItemNotFoundOrigin,
+  type SmapiInternalErrorOrigin,
   type SmapiLogContentCategory,
   type SmapiLogContentKind,
   type SmapiLogMethod,
@@ -50,6 +52,7 @@ import {
 } from "./authenticated-context";
 import {
   SmapiBrowseError,
+  SmapiBrowseFormatError,
   SonofinBrowseService,
   type SmapiBrowseService,
 } from "./browse-service";
@@ -66,6 +69,7 @@ import {
   SonofinSearchService,
   type SmapiSearchService,
 } from "./search-service";
+import { SmapiTrackFormatError } from "./track-formatter";
 
 export {
   mapJellyfinErrorToSoapFault,
@@ -82,6 +86,7 @@ export type {
 } from "./authenticated-context";
 export {
   SmapiBrowseError,
+  SmapiBrowseFormatError,
   SonofinBrowseService,
   formatJellyfinEntityAsSonosBrowseCollection,
   getStaticSonosBrowseCollection,
@@ -194,6 +199,7 @@ export interface SmapiDependencies
 interface RequestResult {
   contentCategory?: SmapiLogContentCategory;
   contentKind?: SmapiLogContentKind;
+  internalErrorOrigin?: SmapiInternalErrorOrigin;
   itemNotFoundOrigin?: SmapiItemNotFoundOrigin;
   outcome: SmapiLogOutcome;
   reason?: SmapiLogReason;
@@ -237,7 +243,10 @@ function safeSoapFailure(
   fault: SmapiSafeSoapFault,
   diagnostics: Pick<
     RequestResult,
-    "contentCategory" | "contentKind" | "itemNotFoundOrigin"
+    | "contentCategory"
+    | "contentKind"
+    | "internalErrorOrigin"
+    | "itemNotFoundOrigin"
   > = {},
 ): RequestResult {
   return {
@@ -283,6 +292,10 @@ const INVALID_SEARCH_PARAMETERS_FAULT = {
   outcome: "rejected",
   reason: "invalid_parameters",
 } as const satisfies SmapiSafeSoapFault;
+
+// Increment after a deployed global browse-shape change so Sonos discards
+// cached catalog responses and requests the updated metadata hierarchy.
+const SMAPI_CATALOG_VERSION = "3";
 
 function browseErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
   if (!(error instanceof SmapiBrowseError)) {
@@ -411,6 +424,121 @@ function itemNotFoundDiagnostics(
   return {
     ...(content ?? {}),
     itemNotFoundOrigin: origin,
+  };
+}
+
+function classifyInternalErrorOrigin(
+  error: unknown,
+): SmapiInternalErrorOrigin {
+  if (error instanceof SmapiResponseSerializationError) {
+    return "serialization";
+  }
+
+  if (error instanceof SmapiBrowseFormatError) {
+    switch (error.formatFailure) {
+      case "entity_id":
+        return "browse_entity_id";
+      case "page":
+        return "browse_page";
+    }
+  }
+
+  if (error instanceof SmapiTrackFormatError) {
+    switch (error.formatFailure) {
+      case "container_ambiguous":
+        return "track_container_ambiguous";
+      case "container_missing":
+        return "track_container_missing";
+      case "container_opus":
+        return "track_container_opus";
+      case "container_other":
+        return "track_container_other";
+      case "container_webm":
+        return "track_container_webm";
+      case "data":
+        return "track_data";
+    }
+  }
+
+  if (error instanceof JellyfinClientError) {
+    switch (error.code) {
+      case "invalid_server_response":
+        if (
+          error.responseFailure === "page_shape" ||
+          error.responseFailure === "page_item_shape"
+        ) {
+          return "jellyfin_page";
+        }
+        if (error.responseFailure === "album_type") {
+          return "jellyfin_album_type";
+        }
+        if (error.responseFailure === "album_id") {
+          return "jellyfin_album_id";
+        }
+        if (error.responseFailure === "album_optional_metadata") {
+          return "jellyfin_album_metadata";
+        }
+        if (error.responseFailure === "album_artists") {
+          return "jellyfin_album_artists";
+        }
+        if (error.responseFailure === "body_too_large") {
+          return "jellyfin_response_too_large";
+        }
+        if (error.responseFailure === "body_invalid") {
+          return "jellyfin_response_body";
+        }
+        return "jellyfin_response";
+      case "server_rejected":
+        return "jellyfin_rejected";
+      case "invalid_input":
+      case "invalid_url":
+      case "insecure_url":
+      case "unsafe_url":
+        return "jellyfin_configuration";
+      case "authentication_failed":
+      case "item_not_found":
+      case "server_unreachable":
+      case "token_invalid":
+        return "unexpected";
+    }
+  }
+
+  return "unexpected";
+}
+
+class SmapiResponseSerializationError extends Error {}
+
+function serializeContentResponse(serializer: () => string): string {
+  try {
+    return serializer();
+  } catch {
+    throw new SmapiResponseSerializationError();
+  }
+}
+
+function failureDiagnostics(
+  fault: SmapiSafeSoapFault,
+  error: unknown,
+  itemNotFoundOrigin: SmapiItemNotFoundOrigin,
+  content: ContentClassification | undefined,
+): Pick<
+  RequestResult,
+  | "contentCategory"
+  | "contentKind"
+  | "internalErrorOrigin"
+  | "itemNotFoundOrigin"
+> {
+  if (fault.reason === "item_not_found") {
+    return itemNotFoundDiagnostics(fault, itemNotFoundOrigin, content);
+  }
+  if (fault.reason !== "internal_error") {
+    return {};
+  }
+
+  const internalErrorOrigin = classifyInternalErrorOrigin(error);
+  return {
+    ...(internalErrorOrigin === "unexpected" ? {} : (content ?? {})),
+    internalErrorOrigin,
   };
 }
 
@@ -668,7 +796,7 @@ function handleGetLastUpdate(
     outcome: "success",
     response: xmlResponse(
       serializeGetLastUpdateResponse({
-        catalog: "1",
+        catalog: SMAPI_CATALOG_VERSION,
         favorites: "1",
         pollInterval: 120,
       }),
@@ -697,7 +825,9 @@ async function handleGetMetadata(
     return {
       ...(classifyContent(parameters.id) ?? {}),
       outcome: "success",
-      response: xmlResponse(serializeGetMetadataResponse(result)),
+      response: xmlResponse(
+        serializeContentResponse(() => serializeGetMetadataResponse(result)),
+      ),
       soapMethod: "getMetadata",
     };
   } catch (error) {
@@ -705,8 +835,9 @@ async function handleGetMetadata(
     return safeSoapFailure(
       "getMetadata",
       fault,
-      itemNotFoundDiagnostics(
+      failureDiagnostics(
         fault,
+        error,
         error instanceof SmapiBrowseError
           ? "browse_service"
           : "jellyfin",
@@ -733,7 +864,11 @@ async function handleGetExtendedMetadata(
     return {
       ...(classifyContent(parameters.id) ?? {}),
       outcome: "success",
-      response: xmlResponse(serializeGetExtendedMetadataResponse(result)),
+      response: xmlResponse(
+        serializeContentResponse(() =>
+          serializeGetExtendedMetadataResponse(result),
+        ),
+      ),
       soapMethod: "getExtendedMetadata",
     };
   } catch (error) {
@@ -741,8 +876,9 @@ async function handleGetExtendedMetadata(
     return safeSoapFailure(
       "getExtendedMetadata",
       fault,
-      itemNotFoundDiagnostics(
+      failureDiagnostics(
         fault,
+        error,
         error instanceof SmapiBrowseError
           ? "metadata_service"
           : "jellyfin",
@@ -769,7 +905,11 @@ async function handleGetMediaMetadata(
     return {
       ...(classifyContent(parameters.id) ?? {}),
       outcome: "success",
-      response: xmlResponse(serializeGetMediaMetadataResponse(result)),
+      response: xmlResponse(
+        serializeContentResponse(() =>
+          serializeGetMediaMetadataResponse(result),
+        ),
+      ),
       soapMethod: "getMediaMetadata",
     };
   } catch (error) {
@@ -777,8 +917,9 @@ async function handleGetMediaMetadata(
     return safeSoapFailure(
       "getMediaMetadata",
       fault,
-      itemNotFoundDiagnostics(
+      failureDiagnostics(
         fault,
+        error,
         error instanceof SmapiBrowseError
           ? "metadata_service"
           : "jellyfin",
@@ -808,7 +949,9 @@ async function handleSearch(
     return {
       ...(classifySearchContent(parameters.id) ?? {}),
       outcome: "success",
-      response: xmlResponse(serializeSearchResponse(result)),
+      response: xmlResponse(
+        serializeContentResponse(() => serializeSearchResponse(result)),
+      ),
       soapMethod: "search",
     };
   } catch (error) {
@@ -816,8 +959,9 @@ async function handleSearch(
     return safeSoapFailure(
       "search",
       fault,
-      itemNotFoundDiagnostics(
+      failureDiagnostics(
         fault,
+        error,
         "jellyfin",
         classifySearchContent(parameters.id),
       ),
@@ -1025,6 +1169,9 @@ export async function handleRequest(
     ...(result.contentKind === undefined
       ? {}
       : { contentKind: result.contentKind }),
+    ...(result.internalErrorOrigin === undefined
+      ? {}
+      : { internalErrorOrigin: result.internalErrorOrigin }),
     ...(result.itemNotFoundOrigin === undefined
       ? {}
       : { itemNotFoundOrigin: result.itemNotFoundOrigin }),

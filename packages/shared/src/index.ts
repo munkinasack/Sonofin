@@ -6,6 +6,7 @@ export {
 export {
   writeSmapiRequestLog,
   type SmapiItemNotFoundOrigin,
+  type SmapiInternalErrorOrigin,
   type SmapiLogContentCategory,
   type SmapiLogContentKind,
   type SmapiLogMethod,

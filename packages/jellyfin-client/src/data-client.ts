@@ -24,6 +24,7 @@ import type {
 import {
   JellyfinClientError,
   type JellyfinClientErrorCode,
+  type JellyfinResponseFailure,
 } from "./errors";
 import {
   endpoint,
@@ -47,6 +48,7 @@ const MAX_DEVICE_ID_CHARACTERS = 255;
 const MAX_ACCESS_TOKEN_CHARACTERS = 4_096;
 const MAX_SEARCH_QUERY_CHARACTERS = 512;
 const LIST_FIELDS = "SortName,ParentId,PrimaryImageAspectRatio";
+const UNKNOWN_ALBUM_NAME = "Unknown Album";
 
 interface NormalizedPageOptions {
   readonly startIndex: number;
@@ -87,6 +89,12 @@ interface NormalizedItemBase {
 }
 
 type ItemParser<Item> = (value: JsonObject) => Item;
+
+function invalidResponse(responseFailure: JellyfinResponseFailure): never {
+  throw new JellyfinClientError("invalid_server_response", {
+    responseFailure,
+  });
+}
 
 export class JellyfinApiClient implements JellyfinDataClient {
   readonly #transport: JellyfinJsonTransport;
@@ -218,7 +226,7 @@ export class JellyfinApiClient implements JellyfinDataClient {
     const normalized = normalizePageOptions(options);
     const query = this.#listQuery(normalized);
     query.set("includeItemTypes", "Audio");
-    query.set("parentId", albumId);
+    query.set("albumIds", albumId);
     query.set("recursive", "true");
     query.set("sortBy", "ParentIndexNumber,IndexNumber,SortName");
     query.set("sortOrder", "Ascending");
@@ -279,6 +287,9 @@ export class JellyfinApiClient implements JellyfinDataClient {
     query.set("sortBy", "SortName");
     query.set("sortOrder", "Ascending");
     setOptional(query, "parentId", normalized.libraryId);
+    if (normalized.category === "playlist") {
+      query.set("mediaTypes", "Audio");
+    }
 
     let pathname = "/Artists";
     if (normalized.category !== "artist") {
@@ -494,16 +505,22 @@ function parsePage<Item>(
 ): JellyfinPage<Item> {
   const values = payload.Items;
   if (!Array.isArray(values)) {
-    throw new JellyfinClientError("invalid_server_response");
+    return invalidResponse("page_shape");
   }
-  const startIndex = requiredNonNegativeInteger(payload, "StartIndex");
-  const totalRecordCount = requiredNonNegativeInteger(
-    payload,
-    "TotalRecordCount",
-  );
+  let startIndex: number;
+  let totalRecordCount: number;
+  try {
+    startIndex = requiredNonNegativeInteger(payload, "StartIndex");
+    totalRecordCount = requiredNonNegativeInteger(
+      payload,
+      "TotalRecordCount",
+    );
+  } catch {
+    return invalidResponse("page_shape");
+  }
   const items = values.map((value) => {
     if (!isJsonObject(value)) {
-      throw new JellyfinClientError("invalid_server_response");
+      return invalidResponse("page_item_shape");
     }
     return parser(value);
   });
@@ -525,14 +542,50 @@ function parseArtist(value: JsonObject): JellyfinArtist {
 }
 
 function parseAlbum(value: JsonObject): JellyfinAlbum {
-  assertItemType(value, "MusicAlbum");
-  return {
-    ...parseItemBase(value),
-    kind: "album",
-    artists:
+  try {
+    assertItemType(value, "MusicAlbum");
+  } catch {
+    return invalidResponse("album_type");
+  }
+
+  try {
+    requiredMetadata(value, "Id");
+  } catch {
+    return invalidResponse("album_id");
+  }
+
+  let name: string;
+  try {
+    name = requiredMetadata(value, "Name");
+  } catch {
+    try {
+      name = optionalText(value, "SortName") ?? UNKNOWN_ALBUM_NAME;
+    } catch {
+      return invalidResponse("album_optional_metadata");
+    }
+  }
+
+  let base: NormalizedItemBase;
+  try {
+    base = parseItemBase(value, name);
+  } catch {
+    return invalidResponse("album_optional_metadata");
+  }
+
+  let artists: readonly JellyfinNamedItem[];
+  try {
+    artists =
       parseNamedItems(value, "AlbumArtists") ??
       parseNamedItems(value, "ArtistItems") ??
-      parseNamedArtists(value),
+      parseNamedArtists(value);
+  } catch {
+    return invalidResponse("album_artists");
+  }
+
+  return {
+    ...base,
+    kind: "album",
+    artists,
   };
 }
 
@@ -606,14 +659,17 @@ function parseUnknownItem(
   };
 }
 
-function parseItemBase(value: JsonObject): NormalizedItemBase {
+function parseItemBase(
+  value: JsonObject,
+  nameOverride?: string,
+): NormalizedItemBase {
   const imageTags = optionalObject(value, "ImageTags");
   const primaryImageTag =
     optionalText(imageTags, "Primary") ?? optionalText(value, "PrimaryImageTag");
   const runtimeTicks = optionalNonNegativeInteger(value, "RunTimeTicks");
   return {
     id: requiredMetadata(value, "Id"),
-    name: requiredMetadata(value, "Name"),
+    name: nameOverride ?? requiredMetadata(value, "Name"),
     ...optionalTextProperty(value, "SortName", "sortName"),
     ...optionalTextProperty(value, "ParentId", "parentId"),
     ...optionalTextProperty(value, "MediaType", "mediaType"),

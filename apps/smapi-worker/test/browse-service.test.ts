@@ -880,29 +880,9 @@ describe("SonofinBrowseService", () => {
     },
   );
 
-  it.each([
-    ["missing artist ID", { kind: "artist", name: "Named" }],
-    ["missing artist name", { id: "artist-id", kind: "artist" }],
-    ["blank artist name", { id: "artist-id", kind: "artist", name: " " }],
-    [
-      "unsafe artist name",
-      { id: "artist-id", kind: "artist", name: "unsafe\u0000name" },
-    ],
-    [
-      "artist name with a newline",
-      { id: "artist-id", kind: "artist", name: "line\u2029break" },
-    ],
-    [
-      "overlong artist name",
-      {
-        id: "artist-id",
-        kind: "artist",
-        name: "🎵".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
-      },
-    ],
-  ])("rejects a normalized page with %s", async (_name, item) => {
+  it("rejects a normalized artist page with a missing ID", async () => {
     const getArtists = vi.fn().mockResolvedValue({
-      items: [item],
+      items: [{ kind: "artist", name: "Named" }],
       startIndex: 0,
       totalRecordCount: 1,
     });
@@ -918,24 +898,31 @@ describe("SonofinBrowseService", () => {
   });
 
   it.each([
-    ["missing album ID", { artists: [], kind: "album", name: "Named" }],
-    ["missing album name", { artists: [], id: "album-id", kind: "album" }],
+    [undefined, "Unknown Artist"],
+    [" ", "Unknown Artist"],
+    ["unsafe\u0000name", "Unknown Artist"],
+    ["line\u2029break", "line break"],
     [
-      "album name with a carriage return",
-      { artists: [], id: "album-id", kind: "album", name: "line\rbreak" },
+      "🎵".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
+      "🎵".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS),
     ],
-    [
-      "overlong album name",
-      {
-        artists: [],
-        id: "album-id",
-        kind: "album",
-        name: "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
-      },
-    ],
-  ])("rejects a normalized page with %s", async (_name, item) => {
+  ])("normalizes an unusable artist title %#", async (name, expectedTitle) => {
+    const getArtists = vi.fn().mockResolvedValue({
+      items: [{ id: "artist-id", kind: "artist", name }],
+      startIndex: 0,
+      totalRecordCount: 1,
+    });
+
+    const result = await new SonofinBrowseService().getMetadata(
+      request({ context: withJellyfin({ getArtists }), id: "artists" }),
+    );
+
+    expect(result.items[0]).toMatchObject({ title: expectedTitle });
+  });
+
+  it("rejects a normalized album page with a missing ID", async () => {
     const getAlbums = vi.fn().mockResolvedValue({
-      items: [item],
+      items: [{ artists: [], kind: "album", name: "Named" }],
       startIndex: 0,
       totalRecordCount: 1,
     });
@@ -954,6 +941,30 @@ describe("SonofinBrowseService", () => {
   });
 
   it.each([
+    [undefined, "Unknown Album"],
+    ["line\rbreak", "line break"],
+    [
+      "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
+      "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS),
+    ],
+  ])("normalizes an unusable album title %#", async (name, expectedTitle) => {
+    const getAlbums = vi.fn().mockResolvedValue({
+      items: [{ artists: [], id: "album-id", kind: "album", name }],
+      startIndex: 0,
+      totalRecordCount: 1,
+    });
+
+    const result = await new SonofinBrowseService().getMetadata(
+      request({
+        context: withJellyfin({ getAlbums }),
+        id: encodeSonosContentId({ kind: "artist", value: "artist-id" }),
+      }),
+    );
+
+    expect(result.items[0]).toMatchObject({ title: expectedTitle });
+  });
+
+  it.each([
     ["missing playlist ID", { childCount: 1, kind: "playlist", name: "Named" }],
     [
       "padded playlist ID",
@@ -966,27 +977,6 @@ describe("SonofinBrowseService", () => {
         id: "x".repeat(255),
         kind: "playlist",
         name: "Named",
-      },
-    ],
-    ["missing playlist name", { id: "playlist-id", kind: "playlist" }],
-    [
-      "blank playlist name",
-      { id: "playlist-id", kind: "playlist", name: " " },
-    ],
-    [
-      "unsafe playlist name",
-      { id: "playlist-id", kind: "playlist", name: "unsafe\u0000name" },
-    ],
-    [
-      "playlist name with a newline",
-      { id: "playlist-id", kind: "playlist", name: "line\u2028break" },
-    ],
-    [
-      "overlong playlist name",
-      {
-        id: "playlist-id",
-        kind: "playlist",
-        name: "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
       },
     ],
   ])("rejects a normalized page with %s", async (_name, item) => {
@@ -1004,6 +994,29 @@ describe("SonofinBrowseService", () => {
       code: "invalid_server_response",
       name: "JellyfinClientError",
     });
+  });
+
+  it.each([
+    [undefined, "Untitled Playlist"],
+    [" ", "Untitled Playlist"],
+    ["unsafe\u0000name", "Untitled Playlist"],
+    ["line\u2028break", "line break"],
+    [
+      "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS + 1),
+      "x".repeat(SONOS_MAX_COLLECTION_TEXT_CHARACTERS),
+    ],
+  ])("normalizes an unusable playlist title %#", async (name, expectedTitle) => {
+    const getPlaylists = vi.fn().mockResolvedValue({
+      items: [{ childCount: 1, id: "playlist-id", kind: "playlist", name }],
+      startIndex: 0,
+      totalRecordCount: 1,
+    });
+
+    const result = await new SonofinBrowseService().getMetadata(
+      request({ context: withJellyfin({ getPlaylists }), id: "playlists" }),
+    );
+
+    expect(result.items[0]).toMatchObject({ title: expectedTitle });
   });
 
   it.each([
@@ -1025,7 +1038,7 @@ describe("SonofinBrowseService", () => {
       "a track without a supported container",
       {
         artists: [],
-        container: "wav",
+        container: "ape",
         id: "track-id",
         kind: "track",
         name: "Unknown format",

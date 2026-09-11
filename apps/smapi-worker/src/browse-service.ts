@@ -39,6 +39,20 @@ export class SmapiBrowseError extends Error {
   }
 }
 
+export type SmapiBrowseFormatFailure =
+  | "entity_id"
+  | "page";
+
+/** A fixed, data-free classification for malformed normalized browse data. */
+export class SmapiBrowseFormatError extends JellyfinClientError {
+  readonly formatFailure: SmapiBrowseFormatFailure;
+
+  constructor(formatFailure: SmapiBrowseFormatFailure) {
+    super("invalid_server_response");
+    this.formatFailure = formatFailure;
+  }
+}
+
 export interface SmapiGetMetadataRequest {
   readonly context: SmapiAuthenticatedRequestContext;
   readonly id: unknown;
@@ -87,6 +101,7 @@ const ROOT_COLLECTION = Object.freeze({
   title: "Sonofin",
 });
 const SONOS_LINE_BREAK_PATTERN = /[\n\r\u0085\u2028\u2029]/u;
+const SONOS_LINE_BREAKS_PATTERN = /[\n\r\u0085\u2028\u2029]+/gu;
 
 /** Returns the canonical representation for a non-Jellyfin browse node. */
 export function getStaticSonosBrowseCollection(
@@ -137,8 +152,43 @@ function isSonosDisplayText(value: unknown): value is string {
   );
 }
 
-function invalidJellyfinPage(): never {
-  throw new JellyfinClientError("invalid_server_response");
+function fallbackEntityTitle(
+  kind: "artist" | "album" | "playlist",
+): string {
+  switch (kind) {
+    case "artist":
+      return "Unknown Artist";
+    case "album":
+      return "Unknown Album";
+    case "playlist":
+      return "Untitled Playlist";
+  }
+}
+
+function normalizeEntityTitle(
+  value: unknown,
+  kind: "artist" | "album" | "playlist",
+): string {
+  if (typeof value !== "string") {
+    return fallbackEntityTitle(kind);
+  }
+
+  const singleLine = value.replace(SONOS_LINE_BREAKS_PATTERN, " ").trim();
+  if (!isXmlText(singleLine)) {
+    return fallbackEntityTitle(kind);
+  }
+
+  const truncated = [...singleLine]
+    .slice(0, SONOS_MAX_COLLECTION_TEXT_CHARACTERS)
+    .join("")
+    .trim();
+  return isSonosDisplayText(truncated)
+    ? truncated
+    : fallbackEntityTitle(kind);
+}
+
+function invalidJellyfinPage(formatFailure: SmapiBrowseFormatFailure): never {
+  throw new SmapiBrowseFormatError(formatFailure);
 }
 
 function encodeRequiredEntityId(
@@ -146,24 +196,21 @@ function encodeRequiredEntityId(
   value: unknown,
 ): string {
   if (!isXmlText(value)) {
-    return invalidJellyfinPage();
+    return invalidJellyfinPage("entity_id");
   }
 
   try {
     return encodeSonosContentId({ kind, value });
   } catch {
-    return invalidJellyfinPage();
+    return invalidJellyfinPage("entity_id");
   }
 }
 
 export function formatJellyfinEntityAsSonosBrowseCollection(
   item: JellyfinArtist | JellyfinAlbum | JellyfinPlaylist,
 ): SonosBrowseCollection {
-  if (!isSonosDisplayText(item.name)) {
-    return invalidJellyfinPage();
-  }
-
   const kind = item.kind;
+  const title = normalizeEntityTitle(item.name, kind);
   const base = {
     canAddToFavorites: false,
     canEnumerate: true,
@@ -172,7 +219,7 @@ export function formatJellyfinEntityAsSonosBrowseCollection(
     id: encodeRequiredEntityId(kind, item.id),
     itemType: kind,
     kind: "collection" as const,
-    title: item.name,
+    title,
   };
 
   if (kind === "artist") {
@@ -227,7 +274,7 @@ function browsePage<Item>(
     page.startIndex !== pagination.index ||
     page.items.length > pagination.count
   ) {
-    return invalidJellyfinPage();
+    return invalidJellyfinPage("page");
   }
 
   const items = Object.freeze(page.items.map(formatItem));

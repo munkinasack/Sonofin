@@ -51,18 +51,18 @@ describe("writeSmapiRequestLog", () => {
 
     writeSmapiRequestLog(sink, {
       contentCategory: "album",
-      contentKind: "category",
+      contentKind: "album",
       durationMs: 3,
       httpStatus: 500,
-      itemNotFoundOrigin: "jellyfin",
-      outcome: "rejected",
-      reason: "item_not_found",
+      internalErrorOrigin: "jellyfin_response",
+      outcome: "error",
+      reason: "internal_error",
       requestId: "request-3",
       soapMethod: "getMetadata",
     });
 
-    expect(sink.warn).toHaveBeenCalledWith(
-      '{"event":"smapi.request","requestId":"request-3","httpStatus":500,"durationMs":3,"outcome":"rejected","contentCategory":"album","contentKind":"category","itemNotFoundOrigin":"jellyfin","reason":"item_not_found","soapMethod":"getMetadata"}',
+    expect(sink.error).toHaveBeenCalledWith(
+      '{"event":"smapi.request","requestId":"request-3","httpStatus":500,"durationMs":3,"outcome":"error","contentCategory":"album","contentKind":"album","internalErrorOrigin":"jellyfin_response","reason":"internal_error","soapMethod":"getMetadata"}',
     );
   });
 });

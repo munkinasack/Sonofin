@@ -352,6 +352,98 @@ describe("JellyfinApiClient official request contracts", () => {
     });
   });
 
+  it.each([
+    [
+      "album type",
+      { Id: "album-id", Name: "Album", Type: "Audio" },
+      "album_type",
+    ],
+    [
+      "album id",
+      { Name: "Album", Type: "MusicAlbum" },
+      "album_id",
+    ],
+    [
+      "optional album metadata",
+      {
+        Id: "album-id",
+        Name: "Album",
+        Type: "MusicAlbum",
+        PrimaryImageAspectRatio: "wide",
+      },
+      "album_optional_metadata",
+    ],
+    [
+      "album artists",
+      {
+        AlbumArtists: [{ Id: "artist-id" }],
+        Id: "album-id",
+        Name: "Album",
+        Type: "MusicAlbum",
+      },
+      "album_artists",
+    ],
+  ] as const)("classifies malformed %s", async (_name, item, failure) => {
+    const transport = scriptedFetch(jsonResponse(page(item)));
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+
+    const error = await expectErrorCode(
+      client.getAlbums(),
+      "invalid_server_response",
+    );
+
+    expect(error.responseFailure).toBe(failure);
+  });
+
+  it.each([
+    [undefined, "Fallback sort title", "Fallback sort title"],
+    [null, undefined, "Unknown Album"],
+    ["   ", undefined, "Unknown Album"],
+  ] as const)(
+    "normalizes an unusable album name %# with a safe fallback",
+    async (name, sortName, expectedName) => {
+      const item: Record<string, unknown> = {
+        Id: "album-id",
+        Name: name,
+        SortName: sortName,
+        Type: "MusicAlbum",
+      };
+      const transport = scriptedFetch(jsonResponse(page(item)));
+      const client = new JellyfinApiClient({
+        connection: CONNECTION,
+        fetch: transport.fetch,
+      });
+
+      await expect(client.getAlbums()).resolves.toMatchObject({
+        items: [{ id: "album-id", kind: "album", name: expectedName }],
+      });
+    },
+  );
+
+  it.each([
+    [{}, "page_shape"],
+    [
+      { Items: [null], StartIndex: 5, TotalRecordCount: 40 },
+      "page_item_shape",
+    ],
+  ] as const)("classifies malformed album page %#", async (payload, failure) => {
+    const transport = scriptedFetch(jsonResponse(payload));
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+
+    const error = await expectErrorCode(
+      client.getAlbums(),
+      "invalid_server_response",
+    );
+
+    expect(error.responseFailure).toBe(failure);
+  });
+
   it("gets album tracks in disc and track order while encoding the album ID", async () => {
     const transport = scriptedFetch(
       jsonResponse(
@@ -396,7 +488,7 @@ describe("JellyfinApiClient official request contracts", () => {
     });
     expectGetRequest(transport.calls[0], "/Items", {
       ...COMMON_PAGE_QUERY,
-      parentId: "album/id β",
+      albumIds: "album/id β",
       includeItemTypes: "Audio",
       recursive: "true",
       sortBy: "ParentIndexNumber,IndexNumber,SortName",
@@ -598,7 +690,11 @@ describe("JellyfinApiClient official request contracts", () => {
         sortOrder: "Ascending",
         ...(category === "artist"
           ? {}
-          : { includeItemTypes: itemType, recursive: "true" }),
+          : {
+              includeItemTypes: itemType,
+              ...(category === "playlist" ? { mediaTypes: "Audio" } : {}),
+              recursive: "true",
+            }),
       });
     },
   );
@@ -1034,10 +1130,11 @@ describe("JellyfinApiClient validation and safe failures", () => {
       fetch: declaredTransport.fetch,
       maxResponseBytes: 128,
     });
-    await expectErrorCode(
+    const declaredError = await expectErrorCode(
       declaredClient.getArtists(),
       "invalid_server_response",
     );
+    expect(declaredError.responseFailure).toBe("body_too_large");
 
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -1051,10 +1148,31 @@ describe("JellyfinApiClient validation and safe failures", () => {
       fetch: streamedTransport.fetch,
       maxResponseBytes: 64,
     });
-    await expectErrorCode(
+    const streamedError = await expectErrorCode(
       streamedClient.getArtists(),
       "invalid_server_response",
     );
+    expect(streamedError.responseFailure).toBe("body_too_large");
+  });
+
+  it("classifies an invalid response body without retaining its contents", async () => {
+    const secretBody = "not-json-never-log-this-response";
+    const transport = scriptedFetch(new Response(secretBody, { status: 200 }));
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+
+    const error = await expectErrorCode(
+      client.getArtists(),
+      "invalid_server_response",
+    );
+    const serialized =
+      `${error.name} ${error.message} ${error.stack ?? ""} ` +
+      JSON.stringify(error);
+
+    expect(error.responseFailure).toBe("body_invalid");
+    expect(serialized).not.toContain(secretBody);
   });
 
   it("keeps tokens, response bodies, and transport details out of errors and URLs", async () => {

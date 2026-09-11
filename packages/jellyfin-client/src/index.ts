@@ -30,6 +30,7 @@ export {
   type JellyfinClientErrorCode,
   type JellyfinClientErrorDetails,
   type JellyfinClientOperation,
+  type JellyfinResponseFailure,
 } from "./errors";
 export type {
   JellyfinAuthentication,

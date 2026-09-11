@@ -601,6 +601,11 @@ Implement gradually:
 
 Translate normalized Jellyfin objects into Sonos SMAPI objects.
 
+Replace the fixed `getLastUpdate` catalog value with a globally deterministic
+30-second UTC epoch-bucket token and advertise `pollInterval` 30. This
+intentionally accepts the additional refresh traffic so external Jellyfin
+catalog changes become visible quickly without shared Worker state.
+
 Avoid building everything at once.
 
 ---

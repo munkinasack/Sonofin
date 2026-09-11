@@ -3,6 +3,7 @@ import {
   type JellyfinClientErrorCode,
   type JellyfinClientErrorDetails,
   type JellyfinClientOperation,
+  type JellyfinResponseFailure,
 } from "./errors";
 
 const MAX_SERVER_URL_CHARACTERS = 2_048;
@@ -17,6 +18,7 @@ function transportError(
   code: JellyfinClientErrorCode,
   operation?: JellyfinClientOperation,
   upstreamStatus?: number,
+  responseFailure?: JellyfinResponseFailure,
 ): JellyfinClientError {
   const details: JellyfinClientErrorDetails = {};
   if (operation !== undefined) {
@@ -24,6 +26,9 @@ function transportError(
   }
   if (upstreamStatus !== undefined) {
     details.upstreamStatus = upstreamStatus;
+  }
+  if (responseFailure !== undefined) {
+    details.responseFailure = responseFailure;
   }
   return new JellyfinClientError(code, details);
 }
@@ -218,6 +223,9 @@ export class JellyfinJsonTransport {
         "invalid_server_response",
         operation,
         response.status,
+        error instanceof ResponseLimitError
+          ? "body_too_large"
+          : "body_invalid",
       );
     }
   }

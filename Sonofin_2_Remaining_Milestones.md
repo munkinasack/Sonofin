@@ -8,7 +8,7 @@ The broad milestone goals in the handoff remain authoritative product scope.
 The numbered tasks below are authoritative for execution order and task
 boundaries. A whole remaining milestone must not be assigned as one Codex task.
 
-The plan contains 34 primary runs: 27 implementation/documentation runs and 7
+The plan contains 36 primary runs: 29 implementation/documentation runs and 7
 explicit research, real-system verification, or deployment gates. The two
 deployment gates remain externally authorized operations, not implied actions.
 
@@ -88,10 +88,10 @@ separate explicit authorization when they are run.
 Use the task order within each milestone. The cross-milestone critical path is:
 
 ```text
-7.1 + 7.2 -> 7.3 ... 7.8 -> 7.8a -> 7.8b -> 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
-                                                                   -> 9.1 -> 9.2 -> 10.1 ... 10.6
-                                                                                        -> 11.1 ... 11.6
-                                                                                                   -> 12.1 ... 12.6
+7.1 + 7.2 -> 7.3 ... 7.8 -> 7.8a -> 7.8b -> 7.8c -> 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
+                                                                           -> 9.1 -> 9.2 -> 10.1 ... 10.6
+                                                                                                -> 11.1 ... 11.6
+                                                                                                           -> 12.1 ... 12.6
 ```
 
 Security research in 11.1 can begin earlier as a separate read-only task, but
@@ -102,8 +102,9 @@ all of Milestone 11 is complete.
 
 Milestone exit: an authenticated Sonos account can browse the root, artists,
 artist albums, albums, album tracks, playlists, playlist tracks, and search
-results through paginated, namespace-correct SMAPI responses. Jellyfin tokens
-never enter XML, item IDs, logs, or errors.
+results through paginated, namespace-correct SMAPI responses, with catalog
+caches invalidated on a 30-second cadence. Jellyfin tokens never enter XML,
+item IDs, logs, or errors.
 
 ### [x] Task 7.1 — Browse protocol and content-ID foundation
 
@@ -284,13 +285,44 @@ positive real-app track-ID call remains part of Task 7.9 and is not claimed as
 evidence here. `getMediaMetadata` is playback-stage compatibility, not the
 cause or fix for browse enumeration.
 
+### [ ] Task 7.8c — Thirty-second catalog refresh token
+
+**Budget:** 1.5–2.5 hours. **Prerequisite:** 7.8b. **Product decision:** accept
+the additional SMAPI and Jellyfin browse traffic from deliberately invalidating
+Sonos's catalog cache every 30 seconds.
+
+- Replace the fixed `getLastUpdate` catalog version with a deterministic UTC
+  epoch bucket: `floor(nowMilliseconds / 30_000)`, serialized as a base-10
+  string. Return the same token throughout each 30-second bucket and a new token
+  at every bucket boundary. Do not use a locale-formatted date, a two-digit
+  year, per-isolate state, randomness, KV, or D1.
+- Return `pollInterval: 30`, Sonos's minimum supported interval. Keep the
+  existing `favorites` token unchanged; this task refreshes the global catalog
+  only.
+- Keep `getLastUpdate` itself free of Jellyfin catalog reads. Its request-scoped
+  authenticated context and connection-integrity validation remain required,
+  while the changing token causes the Sonos app to issue its normal follow-up
+  `getMetadata` requests.
+- Add a pure helper or injected clock seam and deterministic tests for two calls
+  in one bucket, the exact 30-second boundary, UTC minute/day/year transitions,
+  valid ordered XML, and the absence of token-specific persistence or Jellyfin
+  catalog calls.
+- Document the intentional tradeoff: Sonos advises against changing `catalog`
+  too frequently because it invalidates client caches, but Sonofin chooses the
+  minimum interval so external Jellyfin library changes become visible quickly.
+  Run `pnpm check` before resuming Task 7.9.
+
 ### [ ] Task 7.9 — Milestone 7 real-system browse verification
 
-**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8b and a ready Jellyfin server,
+**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8c and a ready Jellyfin server,
 Sonos test household/service registration, representative music, and test
 credentials.
 
 - Run onboarding and browse every Milestone 7 branch from a real Sonos app.
+- Verify that repeated `getLastUpdate` calls within one 30-second UTC bucket
+  return the same catalog token, the next bucket returns a different token, and
+  an active Sonos app subsequently refreshes browsed metadata without creating
+  a faster-than-advertised or recursive request loop.
 - Verify paging with a collection larger than one page and search all four
   categories. For a Sandbox integration, run the app search check from a
   Windows/Mac desktop or S1 app using Classic Search because Sonos does not

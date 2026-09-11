@@ -37,6 +37,7 @@ describe("serializeGetExtendedMetadataResponse", () => {
         '<artist>An Artist</artist><artistId>artist-1</artistId>' +
         '<canScroll>false</canScroll><canPlay>false</canPlay>' +
         '<canEnumerate>true</canEnumerate><canAddToFavorites>false</canAddToFavorites>' +
+        '<albumArtURI></albumArtURI>' +
         '</mediaCollection></getExtendedMetadataResult>' +
         '</getExtendedMetadataResponse></soap:Body></soap:Envelope>',
     );

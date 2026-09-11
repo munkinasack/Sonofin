@@ -67,12 +67,16 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
 
   it.each([
     ["aac", "audio/aac"],
+    ["aif", "audio/aiff"],
+    ["aiff", "audio/aiff"],
     ["asf", "audio/x-ms-wma"],
     ["flac", "audio/flac"],
     ["m4a", "audio/mp4"],
     ["mp3", "audio/mpeg"],
     ["mp4", "audio/mp4"],
     ["ogg", "application/ogg"],
+    ["wav", "audio/wav"],
+    ["wave", "audio/wav"],
     ["wma", "audio/x-ms-wma"],
   ] as const)("maps Jellyfin container %s to %s", (container, mimeType) => {
     expect(
@@ -80,6 +84,14 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
         track({ container: container.toUpperCase() }),
       ).mimeType,
     ).toBe(mimeType);
+  });
+
+  it("recognizes Jellyfin's FFmpeg MP4 container alias list", () => {
+    expect(
+      formatJellyfinTrackAsSonosBrowseTrack(
+        track({ container: "mov,mp4,m4a,3gp,3g2,mj2" }),
+      ).mimeType,
+    ).toBe("audio/mp4");
   });
 
   it("omits metadata that Jellyfin does not provide", () => {
@@ -161,7 +173,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
     ["wrong kind", { kind: "album" }],
     ["missing artists", { artists: undefined }],
     ["missing container", { container: undefined }],
-    ["unknown container", { container: "wav" }],
+    ["unknown container", { container: "ape" }],
     ["ambiguous container", { container: "mp3,flac" }],
     ["unnormalized container", { container: " mp3 " }],
   ])("rejects a normalized track with %s", (_name, overrides) => {
@@ -174,4 +186,23 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
       name: "JellyfinClientError",
     }));
   });
+
+  it.each([
+    [undefined, "container_missing"],
+    [" mp3 ", "container_missing"],
+    ["mp3,flac", "container_ambiguous"],
+    ["opus", "container_opus"],
+    ["webm", "container_webm"],
+    ["webma", "container_webm"],
+    ["ape", "container_other"],
+  ] as const)(
+    "classifies unsupported container %# without retaining its value",
+    (container, formatFailure) => {
+      expect(() =>
+        formatJellyfinTrackAsSonosBrowseTrack(
+          track({ container } as Partial<JellyfinTrack>),
+        ),
+      ).toThrowError(expect.objectContaining({ formatFailure }));
+    },
+  );
 });

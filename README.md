@@ -131,7 +131,7 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   Jellyfin milliseconds to whole Sonos seconds; retains a safe track number;
   and omits unavailable or unsafe optional metadata.
 - MIME types are derived only from a fixed, documented container allow-list:
-  MP3, FLAC, AAC, M4A/MP4, Ogg, and WMA/ASF. Because SMAPI requires a MIME type,
+  MP3, FLAC, AAC, M4A/MP4, Ogg, WMA/ASF, WAV, and AIFF. Because SMAPI requires a MIME type,
   a missing, ambiguous, or unknown Jellyfin container is rejected as an invalid
   upstream item rather than guessed or silently removed from a page.
 - Album collections remain enumerable but non-playable because recursive

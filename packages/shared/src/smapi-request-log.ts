@@ -25,6 +25,28 @@ export type SmapiItemNotFoundOrigin =
   | "metadata_service"
   | "jellyfin";
 
+export type SmapiInternalErrorOrigin =
+  | "browse_entity_id"
+  | "browse_page"
+  | "jellyfin_configuration"
+  | "jellyfin_album_artists"
+  | "jellyfin_album_id"
+  | "jellyfin_album_metadata"
+  | "jellyfin_album_type"
+  | "jellyfin_page"
+  | "jellyfin_rejected"
+  | "jellyfin_response_body"
+  | "jellyfin_response_too_large"
+  | "jellyfin_response"
+  | "serialization"
+  | "track_container_ambiguous"
+  | "track_container_missing"
+  | "track_container_opus"
+  | "track_container_other"
+  | "track_container_webm"
+  | "track_data"
+  | "unexpected";
+
 export type SmapiLogMethod =
   | "getAppLink"
   | "getDeviceAuthToken"
@@ -58,6 +80,7 @@ export interface SmapiRequestLog {
   outcome: SmapiLogOutcome;
   contentCategory?: SmapiLogContentCategory;
   contentKind?: SmapiLogContentKind;
+  internalErrorOrigin?: SmapiInternalErrorOrigin;
   itemNotFoundOrigin?: SmapiItemNotFoundOrigin;
   reason?: SmapiLogReason;
   soapMethod?: SmapiLogMethod;
@@ -89,6 +112,9 @@ export function writeSmapiRequestLog(
     ...(entry.contentKind === undefined
       ? {}
       : { contentKind: entry.contentKind }),
+    ...(entry.internalErrorOrigin === undefined
+      ? {}
+      : { internalErrorOrigin: entry.internalErrorOrigin }),
     ...(entry.itemNotFoundOrigin === undefined
       ? {}
       : { itemNotFoundOrigin: entry.itemNotFoundOrigin }),

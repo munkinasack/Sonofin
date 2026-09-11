@@ -16,8 +16,19 @@ export type JellyfinClientOperation =
   | "token_authentication"
   | "token_revocation";
 
+export type JellyfinResponseFailure =
+  | "album_artists"
+  | "album_id"
+  | "album_optional_metadata"
+  | "album_type"
+  | "body_invalid"
+  | "body_too_large"
+  | "page_item_shape"
+  | "page_shape";
+
 export interface JellyfinClientErrorDetails {
   operation?: JellyfinClientOperation;
+  responseFailure?: JellyfinResponseFailure;
   upstreamStatus?: number;
 }
 
@@ -38,6 +49,7 @@ const ERROR_MESSAGES: Readonly<Record<JellyfinClientErrorCode, string>> = {
 export class JellyfinClientError extends Error {
   readonly code: JellyfinClientErrorCode;
   readonly operation: JellyfinClientOperation | undefined;
+  readonly responseFailure: JellyfinResponseFailure | undefined;
   readonly upstreamStatus: number | undefined;
 
   constructor(
@@ -48,6 +60,7 @@ export class JellyfinClientError extends Error {
     this.name = "JellyfinClientError";
     this.code = code;
     this.operation = details.operation;
+    this.responseFailure = details.responseFailure;
     this.upstreamStatus = details.upstreamStatus;
   }
 }

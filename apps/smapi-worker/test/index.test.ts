@@ -4,12 +4,14 @@ import {
   JellyfinClientError,
   type JellyfinConnection,
   type JellyfinDataClient,
+  type JellyfinTrack,
 } from "@sonofin/jellyfin-client";
 import type { SmapiLogSink } from "@sonofin/shared";
 import { encodeSonosContentId } from "@sonofin/sonos-smapi";
 
 import smapiWorker, {
   handleRequest,
+  formatJellyfinTrackAsSonosBrowseTrack,
   mapJellyfinErrorToSoapFault,
   resolveSmapiAuthenticatedContext,
   SmapiBrowseError,
@@ -179,7 +181,7 @@ describe("SMAPI Worker", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-request-id")).toBeTruthy();
     expect(body).toContain("<getLastUpdateResponse");
-    expect(body).toContain("<catalog>1</catalog>");
+    expect(body).toContain("<catalog>3</catalog>");
     expect(dependencies.sonosAuthentication.authenticate).toHaveBeenCalledWith({
       authToken: "never-log-this-token",
       householdId: "Sonos_household",
@@ -1079,7 +1081,8 @@ describe("SMAPI Worker", () => {
         `<artist>Björk &amp; 二</artist><artistId>${encodedArtistId}</artistId>` +
         "<canScroll>false</canScroll><canPlay>false</canPlay>" +
         "<canEnumerate>true</canEnumerate>" +
-        "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
+        "<canAddToFavorites>false</canAddToFavorites>" +
+        "<albumArtURI></albumArtURI></mediaCollection>",
     );
     expect(getAlbums).toHaveBeenCalledWith({ limit: 10, startIndex: 0 });
 
@@ -1572,10 +1575,249 @@ describe("SMAPI Worker", () => {
     );
     expect(logged).toContain('"soapMethod":"getMetadata"');
     expect(logged).toContain('"reason":"internal_error"');
+    expect(logged).toContain('"internalErrorOrigin":"unexpected"');
     expect(body).not.toContain(secretCanary);
     expect(logged).not.toContain(secretCanary);
     expect(logged).not.toContain("never-log-this-token");
     expect(logged).not.toContain("root");
+  });
+
+  it("classifies a track-container failure without logging track data", async () => {
+    const sourceId = "private-album-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const privateTrack = {
+      artists: [{ id: "private-artist-id", name: "Private Artist" }],
+      container: "never-log-private-container",
+      id: "private-track-id",
+      kind: "track",
+      name: "Private Track Title",
+    } satisfies JellyfinTrack;
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi.fn((): never => {
+            formatJellyfinTrackAsSonosBrowseTrack(privateTrack);
+            throw new Error("unreachable");
+          }),
+        },
+        logSink: sink,
+      }),
+    );
+    const body = await response.text();
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(body).toContain(
+      "<faultcode>Server.ServiceUnknownError</faultcode>",
+    );
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "track_container_other",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(`${body}${logged}`).not.toContain(sourceId);
+    expect(`${body}${logged}`).not.toContain(encodedAlbumId);
+    expect(`${body}${logged}`).not.toContain(privateTrack.id);
+    expect(`${body}${logged}`).not.toContain(privateTrack.name);
+    expect(`${body}${logged}`).not.toContain(privateTrack.container);
+    expect(`${body}${logged}`).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies invalid track data without logging track data", async () => {
+    const sourceId = "private-album-data-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const privateTrack = {
+      artists: [],
+      container: "mp3",
+      id: "private-invalid-track-id",
+      kind: "track",
+      name: " ",
+    } satisfies JellyfinTrack;
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi.fn((): never => {
+            formatJellyfinTrackAsSonosBrowseTrack(privateTrack);
+            throw new Error("unreachable");
+          }),
+        },
+        logSink: sink,
+      }),
+    );
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "track_data",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(logged).not.toContain(sourceId);
+    expect(logged).not.toContain(encodedAlbumId);
+    expect(logged).not.toContain(privateTrack.id);
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies invalid Jellyfin responses without logging content IDs", async () => {
+    const sourceId = "private-album-response-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi
+            .fn()
+            .mockRejectedValue(
+              new JellyfinClientError("invalid_server_response"),
+            ),
+        },
+        logSink: sink,
+      }),
+    );
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "jellyfin_response",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(logged).not.toContain(sourceId);
+    expect(logged).not.toContain(encodedAlbumId);
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies oversized Jellyfin responses without logging content IDs", async () => {
+    const sourceId = "private-album-size-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi.fn().mockRejectedValue(
+            new JellyfinClientError("invalid_server_response", {
+              responseFailure: "body_too_large",
+            }),
+          ),
+        },
+        logSink: sink,
+      }),
+    );
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "jellyfin_response_too_large",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(logged).not.toContain(sourceId);
+    expect(logged).not.toContain(encodedAlbumId);
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies malformed album-artist metadata without logging content IDs", async () => {
+    const sourceId = "private-album-artist-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi.fn().mockRejectedValue(
+            new JellyfinClientError("invalid_server_response", {
+              responseFailure: "album_artists",
+            }),
+          ),
+        },
+        logSink: sink,
+      }),
+    );
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "jellyfin_album_artists",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(logged).not.toContain(sourceId);
+    expect(logged).not.toContain(encodedAlbumId);
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("classifies response serialization failures at the serializer boundary", async () => {
+    const sourceId = "private-album-serialization-id-canary";
+    const encodedAlbumId = encodeSonosContentId({
+      kind: "album",
+      value: sourceId,
+    });
+    const sink = createSink();
+    const response = await handleRequest(
+      makeSoapRequest("getMetadata", {
+        parameters:
+          `<id>${encodedAlbumId}</id><index>0</index><count>10</count>`,
+      }),
+      createDependencies({
+        browse: {
+          getMetadata: vi.fn().mockResolvedValue(undefined as never),
+        },
+        logSink: sink,
+      }),
+    );
+    const logged = vi.mocked(sink.error).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(logged)).toMatchObject({
+      contentKind: "album",
+      internalErrorOrigin: "serialization",
+      reason: "internal_error",
+      soapMethod: "getMetadata",
+    });
+    expect(logged).not.toContain(sourceId);
+    expect(logged).not.toContain(encodedAlbumId);
+    expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
   });
 
   it("logs getMetadata success and rejection with allow-listed fields only", async () => {

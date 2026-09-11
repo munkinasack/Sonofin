@@ -91,6 +91,7 @@ describe("serializeGetMetadataResponse", () => {
         '<canEnumerate>true</canEnumerate>' +
         '<canAddToFavorites>false</canAddToFavorites>' +
         '<containsFavorite>false</containsFavorite><canSkip>true</canSkip>' +
+        '<albumArtURI></albumArtURI>' +
         '<canResume>false</canResume><total>12</total></mediaCollection>' +
         '<mediaMetadata><id>track-1</id><itemType>track</itemType>' +
         '<displayType>list</displayType><title>A Track</title>' +

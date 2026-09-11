@@ -11,19 +11,51 @@ import {
 } from "@sonofin/sonos-smapi";
 
 const SONOS_LINE_BREAK_PATTERN = /[\n\r\u0085\u2028\u2029]/u;
+const JELLYFIN_MP4_CONTAINER_ALIASES = new Set([
+  "3g2",
+  "3gp",
+  "m4a",
+  "mj2",
+  "mov",
+  "mp4",
+]);
 const SONOS_MIME_TYPES_BY_JELLYFIN_CONTAINER = Object.freeze({
   aac: "audio/aac",
+  aif: "audio/aiff",
+  aiff: "audio/aiff",
   asf: "audio/x-ms-wma",
   flac: "audio/flac",
   m4a: "audio/mp4",
   mp3: "audio/mpeg",
   mp4: "audio/mp4",
   ogg: "application/ogg",
+  wav: "audio/wav",
+  wave: "audio/wav",
   wma: "audio/x-ms-wma",
 } as const satisfies Readonly<Record<string, string>>);
 
-function invalidJellyfinTrack(): never {
-  throw new JellyfinClientError("invalid_server_response");
+export type SmapiTrackFormatFailure =
+  | "container_ambiguous"
+  | "container_missing"
+  | "container_opus"
+  | "container_other"
+  | "container_webm"
+  | "data";
+
+/** A fixed, data-free classification for credential-safe Worker diagnostics. */
+export class SmapiTrackFormatError extends JellyfinClientError {
+  readonly formatFailure: SmapiTrackFormatFailure;
+
+  constructor(formatFailure: SmapiTrackFormatFailure) {
+    super("invalid_server_response");
+    this.formatFailure = formatFailure;
+  }
+}
+
+function invalidJellyfinTrack(
+  formatFailure: SmapiTrackFormatFailure,
+): never {
+  throw new SmapiTrackFormatError(formatFailure);
 }
 
 function isXmlText(value: unknown): value is string {
@@ -65,7 +97,7 @@ function encodeRequiredTrackId(value: unknown): string {
   try {
     return encodeSonosContentId({ kind: "track", value: value as string });
   } catch {
-    return invalidJellyfinTrack();
+    return invalidJellyfinTrack("data");
   }
 }
 
@@ -117,13 +149,33 @@ function requiredMimeType(container: unknown): string {
     container === "" ||
     container.trim() !== container
   ) {
-    return invalidJellyfinTrack();
+    return invalidJellyfinTrack("container_missing");
   }
 
+  const normalized = container.toLowerCase();
   const mimeType = SONOS_MIME_TYPES_BY_JELLYFIN_CONTAINER[
-    container.toLowerCase() as keyof typeof SONOS_MIME_TYPES_BY_JELLYFIN_CONTAINER
+    normalized as keyof typeof SONOS_MIME_TYPES_BY_JELLYFIN_CONTAINER
   ];
-  return mimeType ?? invalidJellyfinTrack();
+  if (mimeType !== undefined) {
+    return mimeType;
+  }
+  if (normalized.includes(",")) {
+    const aliases = normalized.split(",");
+    if (
+      aliases.includes("mp4") &&
+      aliases.every((alias) => JELLYFIN_MP4_CONTAINER_ALIASES.has(alias))
+    ) {
+      return "audio/mp4";
+    }
+    return invalidJellyfinTrack("container_ambiguous");
+  }
+  if (normalized === "opus") {
+    return invalidJellyfinTrack("container_opus");
+  }
+  if (normalized === "webm" || normalized === "webma") {
+    return invalidJellyfinTrack("container_webm");
+  }
+  return invalidJellyfinTrack("container_other");
 }
 
 /**
@@ -140,7 +192,7 @@ export function formatJellyfinTrackAsSonosBrowseTrack(
     !isSingleLineXmlText(track.name) ||
     !Array.isArray(track.artists)
   ) {
-    return invalidJellyfinTrack();
+    return invalidJellyfinTrack("data");
   }
 
   const artist = firstSafeArtist(track.artists);

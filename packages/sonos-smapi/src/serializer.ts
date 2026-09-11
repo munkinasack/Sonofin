@@ -335,6 +335,9 @@ function serializeCollection(item: SonosBrowseCollection): string {
     optionalBooleanElement("canAddToFavorites", item.canAddToFavorites) +
     optionalBooleanElement("containsFavorite", item.containsFavorite) +
     optionalBooleanElement("canSkip", item.canSkip) +
+    (item.itemType === "album"
+      ? "<albumArtURI></albumArtURI>"
+      : "") +
     optionalBooleanElement("canResume", item.canResume) +
     optionalIntegerElement("total", item.total, 0) +
     `</mediaCollection>`
