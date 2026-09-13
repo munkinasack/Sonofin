@@ -9,13 +9,14 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6 plus Tasks
-7.1–7.8b**: browser onboarding ends with a separate, durable Sonos-facing
+7.1–7.8c**: browser onboarding ends with a separate, durable Sonos-facing
 credential, the Jellyfin package provides the reusable authenticated music-data
 layer, and the SMAPI Worker resolves each authenticated Sonos mapping into a
 request-scoped Jellyfin data client. The Worker implements authenticated
 `getMetadata` routes for the fixed root menu, paginated artists, global or
 artist-filtered albums, and album or playlist tracks. It also implements the
-matching four-category search contract and the mandatory metadata methods.
+matching four-category search contract, the mandatory metadata methods, and a
+globally deterministic 30-second catalog refresh signal.
 
 Task 7.9 real-system verification is in progress; Milestones 8–12 remain future
 work. Onboarding, root browsing, artist albums, playlist contents, and paging
@@ -28,6 +29,25 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 7.8c adds
+
+- `getLastUpdate` now derives `catalog` from the current UTC epoch-millisecond
+  value with `floor(nowMilliseconds / 30_000)`. Every Worker instance therefore
+  returns the same base-10 token throughout a 30-second bucket and advances it
+  exactly at the next bucket boundary without KV, D1, randomness, or mutable
+  isolate state.
+- The response advertises Sonos's minimum `pollInterval` of 30 seconds while
+  leaving the `favorites` token unchanged at `1`; only the global catalog cache
+  is deliberately invalidated.
+- Authentication, exact household binding, encrypted connection retrieval, and
+  request-scoped Jellyfin client construction still occur before the response.
+  `getLastUpdate` performs no Jellyfin catalog read; Sonos makes its ordinary
+  follow-up `getMetadata` requests after observing a new token.
+- Sonos advises against frequent catalog-version changes because they discard
+  client caches. Sonofin intentionally accepts the additional SMAPI and
+  Jellyfin browse traffic at the minimum interval so external Jellyfin library
+  changes become visible quickly.
 
 ## What Task 7.8b adds
 
@@ -163,12 +183,14 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   safe fault mapping, and XML serialization; the service owns validated content
   IDs, paging, and conversion to typed browse results.
 - Browsing the literal `root` ID returns Artists (`artists`, `container`),
-  Albums (`albums`, `albumList`), Playlists (`playlists`, `container`), and
-  Search (`search`, `container`) in that stable order. The read-only Playlists
+  Albums (`albums`, `albumList`), and Playlists (`playlists`, `container`) in
+  that stable order. Search is not ordinary root browse content: Sonos exposes
+  it through the registered Search capability, while desktop and S1 clients
+  request the reserved `search` container directly. The read-only Playlists
   category is a generic container rather than Sonos's special editable-user-
   playlists root; individual Jellyfin playlist rows retain the `playlist`
-  item type. The response reports a stable total of four and supports partial
-  and empty out-of-range pages.
+  item type. The root response reports a stable total of three and supports
+  partial and empty out-of-range pages.
 - The root represents one aggregate catalog across all music libraries visible
   to the authenticated Jellyfin user. It exposes no per-library nodes and makes
   no Jellyfin data request; Task 7.4 adds artist and artist-album contents.
@@ -206,9 +228,10 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   return `Server.ServiceUnknownError`. Faults and allow-listed logs never include
   thrown messages, server bodies, credential-bearing URLs, or tokens.
 - Task 7.2 itself did not add a browse route or make a Jellyfin network request.
-  `getLastUpdate` still constructs the authenticated context to verify the
-  complete mapping/decryption/client boundary, then returns its existing
-  hard-coded response. Task 7.3 reuses that context for the root browse route.
+  At that stage, `getLastUpdate` constructed the authenticated context to verify
+  the complete mapping/decryption/client boundary, then returned a hard-coded
+  response. Task 7.3 reused that context for the root browse route, and Task
+  7.8c retains it while deriving the catalog token from UTC epoch time.
 
 ## What Task 7.1 adds
 
@@ -252,13 +275,14 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   item-scoped `404` responses have a distinct `item_not_found` error, while
   other server failures remain safely generalized.
 
-Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.8b now supply
+Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.8c now supply
 the browse protocol layer, authenticated context, root route, artist and album
 collections, album tracks, playlists, playlist tracks, and the
 category-filtered Jellyfin and Sonos search contracts, plus the required
-extended- and media-metadata methods. Direct
-Sonos-to-Jellyfin playback integration and activity tracking remain later tasks
-in Milestones 8–9. Caching and stream proxying remain explicitly deferred.
+extended- and media-metadata methods and stateless 30-second catalog refreshes.
+Direct Sonos-to-Jellyfin playback integration and activity tracking remain
+later tasks in Milestones 8–9. Caching and stream proxying remain explicitly
+deferred.
 
 ## What Milestone 5 proves
 

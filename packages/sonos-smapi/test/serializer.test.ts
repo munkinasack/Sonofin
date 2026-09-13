@@ -18,7 +18,7 @@ describe("serializeGetLastUpdateResponse", () => {
     const xml = serializeGetLastUpdateResponse({
       catalog: "catalog-1",
       favorites: "favorites-1",
-      pollInterval: 120,
+      pollInterval: 30,
     });
 
     expect(xml).toContain(
@@ -28,7 +28,10 @@ describe("serializeGetLastUpdateResponse", () => {
       '<getLastUpdateResponse xmlns="http://www.sonos.com/Services/1.1">',
     );
     expect(xml.indexOf("<catalog>")).toBeLessThan(xml.indexOf("<favorites>"));
-    expect(xml).toContain("<pollInterval>120</pollInterval>");
+    expect(xml.indexOf("<favorites>")).toBeLessThan(
+      xml.indexOf("<pollInterval>"),
+    );
+    expect(xml).toContain("<pollInterval>30</pollInterval>");
     expectWellFormedXml(xml);
   });
 

@@ -123,6 +123,21 @@ function createJellyfinConnections(): SmapiJellyfinConnectionResolver {
   };
 }
 
+function createJellyfinDataClientSpies(): JellyfinDataClient {
+  return {
+    getAlbumTracks: vi.fn(),
+    getAlbums: vi.fn(),
+    getArtists: vi.fn(),
+    getItemMetadata: vi.fn(),
+    getPlaybackInfo: vi.fn(),
+    getPlaylistTracks: vi.fn(),
+    getPlaylists: vi.fn(),
+    getServerInfo: vi.fn(),
+    getUserLibraries: vi.fn(),
+    search: vi.fn(),
+  };
+}
+
 function createDependencies(
   overrides: Partial<SmapiDependencies> = {},
 ): SmapiDependencies {
@@ -133,6 +148,7 @@ function createDependencies(
     jellyfinConnections: createJellyfinConnections(),
     links: createLinks(),
     mediaMetadata: new SonofinMediaMetadataService(),
+    nowMilliseconds: () => Date.now(),
     onboardingUrl: "https://auth.example.test/onboarding",
     search: new SonofinSearchService(),
     sonosAuthentication: createSonosAuthentication(),
@@ -166,8 +182,20 @@ const SEARCH_PARAMETERS =
   "<index>0</index><count>10</count>";
 
 describe("SMAPI Worker", () => {
-  it("returns the hard-coded getLastUpdate response", async () => {
-    const dependencies = createDependencies();
+  it("returns the authenticated 30-second catalog refresh contract without catalog reads", async () => {
+    const jellyfin = createJellyfinDataClientSpies();
+    const browse = { getMetadata: vi.fn() };
+    const extendedMetadata = { getExtendedMetadata: vi.fn() };
+    const mediaMetadata = { getMediaMetadata: vi.fn() };
+    const search = { search: vi.fn() };
+    const dependencies = createDependencies({
+      browse,
+      createJellyfinDataClient: vi.fn().mockReturnValue(jellyfin),
+      extendedMetadata,
+      mediaMetadata,
+      nowMilliseconds: () => 90_000,
+      search,
+    });
     const response = await handleRequest(
       makeSoapRequest("getLastUpdate"),
       dependencies,
@@ -180,8 +208,12 @@ describe("SMAPI Worker", () => {
     );
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-request-id")).toBeTruthy();
-    expect(body).toContain("<getLastUpdateResponse");
-    expect(body).toContain("<catalog>3</catalog>");
+    expect(body).toContain(
+      '<getLastUpdateResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        "<getLastUpdateResult><catalog>3</catalog><favorites>1</favorites>" +
+        "<pollInterval>30</pollInterval></getLastUpdateResult>" +
+        "</getLastUpdateResponse>",
+    );
     expect(dependencies.sonosAuthentication.authenticate).toHaveBeenCalledWith({
       authToken: "never-log-this-token",
       householdId: "Sonos_household",
@@ -192,8 +224,43 @@ describe("SMAPI Worker", () => {
     expect(dependencies.createJellyfinDataClient).toHaveBeenCalledWith(
       JELLYFIN_CONNECTION,
     );
+    for (const method of Object.values(jellyfin)) {
+      expect(method).not.toHaveBeenCalled();
+    }
+    expect(browse.getMetadata).not.toHaveBeenCalled();
+    expect(extendedMetadata.getExtendedMetadata).not.toHaveBeenCalled();
+    expect(mediaMetadata.getMediaMetadata).not.toHaveBeenCalled();
+    expect(search.search).not.toHaveBeenCalled();
+    expect(dependencies.links.createPendingLink).not.toHaveBeenCalled();
+    expect(dependencies.links.claim).not.toHaveBeenCalled();
+    expect(dependencies.sonosAuthentication.issue).not.toHaveBeenCalled();
+    expect(dependencies.sonosAuthentication.revoke).not.toHaveBeenCalled();
     expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
     expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+  });
+
+  it("keeps one catalog token within a bucket and changes it at the exact boundary", async () => {
+    let nowMilliseconds = 60_000;
+    const dependencies = createDependencies({
+      nowMilliseconds: () => nowMilliseconds,
+    });
+    const requestCatalog = async (): Promise<string | undefined> => {
+      const response = await handleRequest(
+        makeSoapRequest("getLastUpdate"),
+        dependencies,
+      );
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      return /<catalog>([0-9]+)<\/catalog>/u.exec(body)?.[1];
+    };
+
+    const first = await requestCatalog();
+    nowMilliseconds = 89_999;
+    const sameBucket = await requestCatalog();
+    nowMilliseconds = 90_000;
+    const nextBucket = await requestCatalog();
+
+    expect([first, sameBucket, nextBucket]).toEqual(["2", "2", "3"]);
   });
 
   it("routes authenticated getExtendedMetadata through its service boundary", async () => {
@@ -414,7 +481,7 @@ describe("SMAPI Worker", () => {
     expect(response.status).toBe(200);
     expect(body).toContain(
       '<getMetadataResponse xmlns="http://www.sonos.com/Services/1.1">' +
-        "<getMetadataResult><index>0</index><count>4</count><total>4</total>",
+        "<getMetadataResult><index>0</index><count>3</count><total>3</total>",
     );
     const expectedCollections = [
       '<mediaCollection><id>artists</id><itemType>container</itemType>' +
@@ -429,10 +496,6 @@ describe("SMAPI Worker", () => {
         "<title>Playlists</title><canScroll>false</canScroll>" +
         "<canPlay>false</canPlay><canEnumerate>true</canEnumerate>" +
         "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
-      '<mediaCollection><id>search</id><itemType>container</itemType>' +
-        "<title>Search</title><canScroll>false</canScroll>" +
-        "<canPlay>false</canPlay><canEnumerate>true</canEnumerate>" +
-        "<canAddToFavorites>false</canAddToFavorites></mediaCollection>",
     ];
     for (const collection of expectedCollections) {
       expect(body).toContain(collection);
@@ -443,8 +506,8 @@ describe("SMAPI Worker", () => {
     expect(body.indexOf("<id>albums</id>")).toBeLessThan(
       body.indexOf("<id>playlists</id>"),
     );
-    expect(body.indexOf("<id>playlists</id>")).toBeLessThan(
-      body.indexOf("<id>search</id>"),
+    expect(body).not.toContain(
+      "<id>search</id><itemType>container</itemType><title>Search</title>",
     );
     expect(getMetadata).toHaveBeenCalledWith({
       context: {
@@ -465,7 +528,8 @@ describe("SMAPI Worker", () => {
   });
 
   it.each([
-    ["2", "2", ["playlists", "search"]],
+    ["2", "2", ["playlists"]],
+    ["3", "100", []],
     ["4", "100", []],
     ["30", "10", []],
     ["2147483647", "100", []],
@@ -485,7 +549,10 @@ describe("SMAPI Worker", () => {
       expect(response.status).toBe(200);
       expect(body).toContain(`<index>${index}</index>`);
       expect(body).toContain(`<count>${expectedIds.length}</count>`);
-      expect(body).toContain("<total>4</total>");
+      expect(body).toContain("<total>3</total>");
+      expect(body).not.toContain(
+        "<id>search</id><itemType>container</itemType><title>Search</title>",
+      );
       expect(body.match(/<mediaCollection>/gu) ?? []).toHaveLength(
         expectedIds.length,
       );

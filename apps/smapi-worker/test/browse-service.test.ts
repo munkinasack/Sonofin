@@ -104,19 +104,10 @@ describe("SonofinBrowseService", () => {
           kind: "collection",
           title: "Playlists",
         },
-        {
-          canAddToFavorites: false,
-          canEnumerate: true,
-          canPlay: false,
-          canScroll: false,
-          id: "search",
-          itemType: "container",
-          kind: "collection",
-          title: "Search",
-        },
       ],
-      total: 4,
+      total: 3,
     });
+    expect(result.items.some((item) => item.id === "search")).toBe(false);
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.items)).toBe(true);
     expect(result.items.every((item) => Object.isFrozen(item))).toBe(true);
@@ -124,8 +115,8 @@ describe("SonofinBrowseService", () => {
 
   it.each([
     ["0", "2", ["Artists", "Albums"]],
-    ["2", "100", ["Playlists", "Search"]],
-    ["3", "1", ["Search"]],
+    ["2", "100", ["Playlists"]],
+    ["3", "1", []],
     ["4", "100", []],
     ["30", "10", []],
     [String(SONOS_MAX_SIGNED_INT), "1", []],
@@ -137,8 +128,9 @@ describe("SonofinBrowseService", () => {
       );
 
       expect(result.index).toBe(Number(index));
-      expect(result.total).toBe(4);
+      expect(result.total).toBe(3);
       expect(result.items.map((item) => item.title)).toEqual(titles);
+      expect(result.items.some((item) => item.id === "search")).toBe(false);
     },
   );
 
@@ -216,7 +208,7 @@ describe("SonofinBrowseService", () => {
     async (recursive) => {
       await expect(
         new SonofinBrowseService().getMetadata(request({ recursive })),
-      ).resolves.toMatchObject({ index: 0, total: 4 });
+      ).resolves.toMatchObject({ index: 0, total: 3 });
     },
   );
 

@@ -50,6 +50,7 @@ import {
   type SmapiSafeSoapFault,
   type SmapiSonosCredentialAuthenticator,
 } from "./authenticated-context";
+import { getCatalogRefreshToken } from "./catalog-refresh";
 import {
   SmapiBrowseError,
   SmapiBrowseFormatError,
@@ -75,6 +76,7 @@ export {
   mapJellyfinErrorToSoapFault,
   resolveSmapiAuthenticatedContext,
 } from "./authenticated-context";
+export { getCatalogRefreshToken } from "./catalog-refresh";
 export type {
   SmapiAuthenticatedContextDependencies,
   SmapiAuthenticatedContextResult,
@@ -189,6 +191,7 @@ export interface SmapiDependencies
   extendedMetadata: SmapiExtendedMetadataService;
   links: SmapiLinkService;
   mediaMetadata: SmapiMediaMetadataService;
+  nowMilliseconds: () => number;
   onboardingUrl: string;
   sonosAuthentication: SmapiSonosAuthentication;
   search: SmapiSearchService;
@@ -292,10 +295,6 @@ const INVALID_SEARCH_PARAMETERS_FAULT = {
   outcome: "rejected",
   reason: "invalid_parameters",
 } as const satisfies SmapiSafeSoapFault;
-
-// Increment after a deployed global browse-shape change so Sonos discards
-// cached catalog responses and requests the updated metadata hierarchy.
-const SMAPI_CATALOG_VERSION = "3";
 
 function browseErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
   if (!(error instanceof SmapiBrowseError)) {
@@ -787,6 +786,7 @@ async function handleGetDeviceAuthToken(
 
 function handleGetLastUpdate(
   context: SmapiAuthenticatedRequestContext,
+  dependencies: SmapiDependencies,
 ): RequestResult {
   // The context is intentionally constructed for every authenticated request.
   // Later browse methods consume both fields; this method currently needs only
@@ -796,9 +796,9 @@ function handleGetLastUpdate(
     outcome: "success",
     response: xmlResponse(
       serializeGetLastUpdateResponse({
-        catalog: SMAPI_CATALOG_VERSION,
+        catalog: getCatalogRefreshToken(dependencies.nowMilliseconds()),
         favorites: "1",
-        pollInterval: 120,
+        pollInterval: 30,
       }),
     ),
     soapMethod: "getLastUpdate",
@@ -1092,7 +1092,7 @@ async function routeRequest(
     }
 
     if (parsed.method === "getLastUpdate") {
-      return handleGetLastUpdate(authenticated.context);
+      return handleGetLastUpdate(authenticated.context, dependencies);
     }
 
     if (parsed.method === "getExtendedMetadata") {
@@ -1241,6 +1241,7 @@ export default {
         extendedMetadata: new SonofinExtendedMetadataService(),
         links,
         mediaMetadata: new SonofinMediaMetadataService(),
+        nowMilliseconds: () => Date.now(),
         onboardingUrl: env.ONBOARDING_URL ?? "",
         sonosAuthentication,
         search: new SonofinSearchService(),

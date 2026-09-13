@@ -88,8 +88,8 @@ const ROOT_MENU_ITEMS = Object.freeze([
   // This is a read-only category, not Sonos's editable user-playlist root.
   // Individual Jellyfin playlists retain itemType="playlist" below it.
   rootCollection("playlists", "Playlists", "container"),
-  rootCollection("search", "Search", "container"),
 ]);
+const SEARCH_COLLECTION = rootCollection("search", "Search", "container");
 const ROOT_COLLECTION = Object.freeze({
   canAddToFavorites: false,
   canEnumerate: true,
@@ -112,6 +112,10 @@ export function getStaticSonosBrowseCollection(
   }
   if (contentId.kind !== "category") {
     return undefined;
+  }
+
+  if (contentId.value === "search") {
+    return SEARCH_COLLECTION;
   }
 
   return (

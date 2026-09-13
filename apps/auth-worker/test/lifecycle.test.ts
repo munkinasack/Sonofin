@@ -295,6 +295,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
       links,
       logSink,
       mediaMetadata: new SonofinMediaMetadataService(),
+      nowMilliseconds: () => now * 1_000,
       onboardingUrl: "https://auth.example.test/onboarding",
       search: new SonofinSearchService(),
       sonosAuthentication,
@@ -462,7 +463,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     const rootBrowseXml = await rootBrowse.text();
     expect(rootBrowse.status).toBe(200);
     expect(rootBrowseXml).toContain(
-      "<getMetadataResult><index>0</index><count>4</count><total>4</total>",
+      "<getMetadataResult><index>0</index><count>3</count><total>3</total>",
     );
     expect(rootBrowseXml).toContain(
       "<id>artists</id><itemType>container</itemType><title>Artists</title>",
@@ -473,7 +474,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     expect(rootBrowseXml).toContain(
       "<id>playlists</id><itemType>container</itemType><title>Playlists</title>",
     );
-    expect(rootBrowseXml).toContain(
+    expect(rootBrowseXml).not.toContain(
       "<id>search</id><itemType>container</itemType><title>Search</title>",
     );
     expect(rootBrowseXml).not.toContain(JELLYFIN_PASSWORD);

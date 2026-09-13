@@ -148,7 +148,10 @@ artwork URLs, or `getExtendedMetadata`.
 - Add a focused browse translation/service boundary so the Worker does not
   construct arbitrary Jellyfin calls or large XML object graphs inline.
 - Route authenticated `getMetadata` and implement the paginated `root`
-  collection with Artists, Albums, Playlists, and Search entries.
+  collection with Artists, Albums, and Playlists entries. Keep search out of
+  ordinary root browse content; Sonos exposes it through the registered Search
+  capability, while desktop and S1 clients request the reserved `search`
+  container directly.
 - Treat the initial catalog as an aggregate of the authenticated user's music
   libraries; per-library navigation is explicitly deferred.
 - Test missing/malformed parameters, unauthorized credentials, empty/out-of-
@@ -285,7 +288,7 @@ positive real-app track-ID call remains part of Task 7.9 and is not claimed as
 evidence here. `getMediaMetadata` is playback-stage compatibility, not the
 cause or fix for browse enumeration.
 
-### [ ] Task 7.8c — Thirty-second catalog refresh token
+### [x] Task 7.8c — Thirty-second catalog refresh token
 
 **Budget:** 1.5–2.5 hours. **Prerequisite:** 7.8b. **Product decision:** accept
 the additional SMAPI and Jellyfin browse traffic from deliberately invalidating
@@ -311,6 +314,13 @@ Sonos's catalog cache every 30 seconds.
   too frequently because it invalidates client caches, but Sonofin chooses the
   minimum interval so external Jellyfin library changes become visible quickly.
   Run `pnpm check` before resuming Task 7.9.
+
+**Evidence:** the pure epoch-bucket helper, injected millisecond clock, exact
+boundary and UTC transition coverage, authenticated no-catalog-read route, and
+ordered minimum-interval XML passed the full repository check: 28 test files
+with 750 unit/cross-Worker tests, seven isolated D1 tests, and dry-run builds for
+both Workers. The implementation adds no migration, cache binding, catalog
+persistence, randomness, or isolate-level mutable state.
 
 ### [ ] Task 7.9 — Milestone 7 real-system browse verification
 
@@ -357,7 +367,12 @@ generic playlist errors. Global album track display remains under a fresh user
 check even though traced album `getMetadata` and `getExtendedMetadata` calls
 return HTTP 200. The observed mobile Sandbox session sent no `search` SOAP
 request, so search remains unverified until the required capability map and a
-supported Classic Search or Preview client are used.
+supported Classic Search or Preview client are used. A mobile Sandbox capture
+also showed the implementation's former ordinary root `Search` row instead of
+the native in-service search field. Sonos documents that Sandbox does not
+support Universal Search, so the native field cannot be verified there; a
+bounded source repair removes the redundant root row while retaining the
+reserved Classic Search container and the four-category `search` method.
 
 ## Milestone 8 — Playback
 
@@ -737,7 +752,8 @@ new bounded task before the affected gate:
 - `getExtendedMetadataText`
 - `reportAccountAction` and playback reporting
 - favorites and playlist mutation
-- authenticated artwork delivery
+- authenticated artwork delivery (subject to the mandatory future-task
+  requirements below)
 - caching or scroll-index optimization
 - a separate internal encryption/credential Worker
 - custom signed playback URLs or Cloudflare audio proxying
@@ -750,3 +766,42 @@ new bounded task before the affected gate:
   matching, stale-state expiry, asymmetric network reachability, TLS, and
   track-scoped short-lived playback credentials; it must never disclose the
   reusable Jellyfin access token to an unverified or plain-HTTP LAN endpoint.
+
+### Mandatory requirements for a future authenticated-artwork task
+
+When authenticated artwork delivery is promoted into a numbered task, that
+task must use Cloudflare's Cache API as an authorization-gated, on-demand edge
+cache rather than preloading a Jellyfin library or fetching every image on
+every Sonos request:
+
+- Add bounded HTTPS `GET` artwork routing and emit Sonos `albumArtURI` values
+  with `requiresAuthentication="true"` where supported. Authenticate the exact
+  Sonos household/device-link credentials and resolve their Jellyfin connection
+  before consulting the shared cache; a cache hit must never bypass household
+  binding or connection authorization.
+- Build one canonical internal cache key from a non-secret connection scope,
+  Jellyfin item/image identity, Jellyfin image tag or equivalent version, and
+  the allow-listed size/format variant. Do not place Sonos or Jellyfin
+  credentials, raw authorization headers, private server URLs, or user data in
+  the public artwork URI, cache key, errors, or logs. Keep emitted URIs within
+  Sonos limits and prevent collisions between different Jellyfin servers or
+  connections.
+- On a cache hit, return the cached complete image with a validated content
+  type and safe response headers. On a miss, make one bounded authenticated
+  Jellyfin image request using the existing redirect and target protections;
+  accept only a successful, allow-listed image response within the configured
+  byte limit, store a clone with `ctx.waitUntil`, and return the other response
+  to Sonos. Cache only complete `200` responses; do not cache authentication
+  failures, redirects, partial responses, malformed images, upstream failures,
+  or missing artwork.
+- Use versioned image keys so an artwork/tag change is an automatic cache miss
+  without a broad purge. Define and test an explicit positive edge TTL and
+  client-cache policy. Keep the response returned to Sonos private so automatic
+  Workers/CDN caching cannot serve it before Worker authorization; only the
+  post-authentication Cache API path may reuse the shared cached bytes.
+- Cover cold miss/store, warm hit without a Jellyfin call, version and variant
+  misses, connection isolation, authorization-before-hit ordering, concurrent
+  misses, TTL/header behavior, oversize and wrong-content rejection, safe
+  failure handling, and credential/identifier redaction. Document that Cache
+  API entries are opportunistic and data-center-local, so eviction or a request
+  reaching another Cloudflare location safely falls back to the same miss path.
