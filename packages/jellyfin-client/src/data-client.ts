@@ -26,6 +26,7 @@ import {
   type JellyfinClientErrorCode,
   type JellyfinResponseFailure,
 } from "./errors";
+import { sonosPlaybackInfoRequest } from "./sonos-playback-profile";
 import {
   endpoint,
   isCharacterLength,
@@ -325,7 +326,7 @@ export class JellyfinApiClient implements JellyfinDataClient {
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ UserId: this.#userId }),
+        body: JSON.stringify(sonosPlaybackInfoRequest(this.#userId)),
       },
     );
     return parsePlaybackInfo(payload);
@@ -730,12 +731,25 @@ function parsePlaybackInfo(value: JsonObject): JellyfinPlaybackInfo {
   if (!Array.isArray(rawSources)) {
     throw new JellyfinClientError("invalid_server_response");
   }
-  const mediaSources = rawSources.map((rawSource) => {
+  const mediaSources: JellyfinMediaSource[] = [];
+  for (const rawSource of rawSources) {
     if (!isJsonObject(rawSource)) {
-      throw new JellyfinClientError("invalid_server_response");
+      continue;
     }
-    return parseMediaSource(rawSource);
-  });
+    try {
+      mediaSources.push(parseMediaSource(rawSource));
+    } catch (error) {
+      if (
+        !(error instanceof JellyfinClientError) ||
+        error.code !== "invalid_server_response"
+      ) {
+        throw error;
+      }
+    }
+  }
+  if (rawSources.length > 0 && mediaSources.length === 0) {
+    throw new JellyfinClientError("invalid_server_response");
+  }
   return {
     ...optionalTextProperty(value, "PlaySessionId", "playSessionId"),
     ...optionalTextProperty(value, "ErrorCode", "errorCode"),
@@ -774,7 +788,22 @@ function parseMediaSource(value: JsonObject): JellyfinMediaSource {
       optionalBoolean(value, "SupportsDirectStream") ?? false,
     supportsTranscoding:
       optionalBoolean(value, "SupportsTranscoding") ?? false,
-    ...optionalTextProperty(value, "TranscodingUrl", "transcodingUrl"),
+    ...optionalUntrimmedTextProperty(value, "TranscodingUrl", "transcodingUrl"),
+    ...optionalTextProperty(
+      value,
+      "TranscodingSubProtocol",
+      "transcodingSubProtocol",
+    ),
+    ...optionalTextProperty(
+      value,
+      "TranscodingContainer",
+      "transcodingContainer",
+    ),
+    ...optionalIntegerProperty(
+      value,
+      "DefaultAudioStreamIndex",
+      "defaultAudioStreamIndex",
+    ),
     ...optionalStringRecordProperty(
       value,
       "RequiredHttpHeaders",
@@ -942,6 +971,29 @@ function optionalTextProperty<Key extends string>(
   return result === undefined
     ? {}
     : ({ [outputKey]: result } as Readonly<Record<Key, string>>);
+}
+
+function optionalUntrimmedTextProperty<Key extends string>(
+  value: JsonObject,
+  inputKey: string,
+  outputKey: Key,
+): Partial<Readonly<Record<Key, string>>> {
+  const raw = value[inputKey];
+  if (raw === undefined || raw === null || raw === "") {
+    return {};
+  }
+  if (
+    typeof raw !== "string" ||
+    !isWellFormedUnicode(raw) ||
+    raw.trim() !== raw ||
+    Array.from(raw).some((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+    })
+  ) {
+    throw new JellyfinClientError("invalid_server_response");
+  }
+  return { [outputKey]: raw } as Readonly<Record<Key, string>>;
 }
 
 function optionalBooleanProperty<Key extends string>(

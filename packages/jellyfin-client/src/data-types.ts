@@ -142,6 +142,9 @@ export interface JellyfinMediaSource {
   readonly supportsDirectStream: boolean;
   readonly supportsTranscoding: boolean;
   readonly transcodingUrl?: string;
+  readonly transcodingSubProtocol?: string;
+  readonly transcodingContainer?: string;
+  readonly defaultAudioStreamIndex?: number;
   readonly requiredHttpHeaders?: Readonly<Record<string, string>>;
   readonly audioStreams: readonly JellyfinAudioStreamInfo[];
 }

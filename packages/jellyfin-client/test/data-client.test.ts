@@ -20,6 +20,112 @@ const AUTHORIZATION =
   'MediaBrowser Client="Sonofin", Device="Cloudflare Worker", ' +
   'DeviceId="device-id", Version="0.0.0", Token="access-token"';
 
+const SONOS_PLAYBACK_BODY = {
+  UserId: "user-id",
+  MaxStreamingBitrate: 8_000_000,
+  MaxAudioChannels: 2,
+  EnableDirectPlay: true,
+  EnableDirectStream: false,
+  EnableTranscoding: true,
+  AllowVideoStreamCopy: false,
+  AllowAudioStreamCopy: false,
+  DeviceProfile: {
+    Name: "Sonofin Sonos",
+    MaxStreamingBitrate: 8_000_000,
+    MaxStaticBitrate: 8_000_000,
+    MaxStaticMusicBitrate: 8_000_000,
+    MusicStreamingTranscodingBitrate: 320_000,
+    DirectPlayProfiles: [
+      { Container: "mp3", AudioCodec: "mp3", Type: "Audio" },
+      { Container: "aac", AudioCodec: "aac", Type: "Audio" },
+      { Container: "m4a,mp4", AudioCodec: "aac", Type: "Audio" },
+      { Container: "flac", AudioCodec: "flac", Type: "Audio" },
+    ],
+    TranscodingProfiles: [
+      {
+        Container: "mp3",
+        AudioCodec: "mp3",
+        Type: "Audio",
+        Protocol: "http",
+        Context: "Streaming",
+        MaxAudioChannels: "2",
+        EstimateContentLength: true,
+        EnableAudioVbrEncoding: false,
+      },
+    ],
+    ContainerProfiles: [],
+    CodecProfiles: [
+      {
+        Type: "Audio",
+        Codec: "mp3",
+        Container: "mp3",
+        Conditions: [
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioChannels",
+            Value: "2",
+            IsRequired: true,
+          },
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioSampleRate",
+            Value: "48000",
+            IsRequired: true,
+          },
+        ],
+        ApplyConditions: [],
+      },
+      {
+        Type: "Audio",
+        Codec: "aac",
+        Container: "aac,m4a,mp4",
+        Conditions: [
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioChannels",
+            Value: "2",
+            IsRequired: true,
+          },
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioSampleRate",
+            Value: "48000",
+            IsRequired: true,
+          },
+        ],
+        ApplyConditions: [],
+      },
+      {
+        Type: "Audio",
+        Codec: "flac",
+        Container: "flac",
+        Conditions: [
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioChannels",
+            Value: "2",
+            IsRequired: true,
+          },
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioSampleRate",
+            Value: "48000",
+            IsRequired: true,
+          },
+          {
+            Condition: "LessThanEqual",
+            Property: "AudioBitDepth",
+            Value: "16",
+            IsRequired: true,
+          },
+        ],
+        ApplyConditions: [],
+      },
+    ],
+    SubtitleProfiles: [],
+  },
+} as const;
+
 const COMMON_PAGE_QUERY = {
   userId: "user-id",
   startIndex: "5",
@@ -134,7 +240,7 @@ function expectGetRequest(
 function expectPostRequest(
   call: FetchCall | undefined,
   pathname: string,
-  body: Readonly<Record<string, string>>,
+  body: unknown,
 ): void {
   expect(call).toBeDefined();
   const url = new URL(call?.url ?? "https://invalid.example");
@@ -747,6 +853,9 @@ describe("JellyfinApiClient official request contracts", () => {
             SupportsDirectStream: false,
             SupportsTranscoding: true,
             TranscodingUrl: "/Audio/item/transcode",
+            TranscodingSubProtocol: "http",
+            TranscodingContainer: "mp3",
+            DefaultAudioStreamIndex: 0,
             RequiredHttpHeaders: { "X-Media-Token": "header-value" },
             MediaStreams: [
               {
@@ -790,6 +899,9 @@ describe("JellyfinApiClient official request contracts", () => {
           supportsDirectStream: false,
           supportsTranscoding: true,
           transcodingUrl: "/Audio/item/transcode",
+          transcodingSubProtocol: "http",
+          transcodingContainer: "mp3",
+          defaultAudioStreamIndex: 0,
           requiredHttpHeaders: { "X-Media-Token": "header-value" },
           audioStreams: [
             {
@@ -812,7 +924,7 @@ describe("JellyfinApiClient official request contracts", () => {
     expectPostRequest(
       transport.calls[0],
       "/Items/track%2Fid%20%CE%B2/PlaybackInfo",
-      { UserId: "user-id" },
+      SONOS_PLAYBACK_BODY,
     );
   });
 
@@ -981,6 +1093,57 @@ describe("JellyfinApiClient validation and safe failures", () => {
       client.getPlaybackInfo("track-id"),
       "invalid_server_response",
     );
+  });
+
+  it("discards malformed playback sources without losing a valid candidate", async () => {
+    const transport = scriptedFetch(
+      jsonResponse({
+        MediaSources: [
+          { Id: "broken-source", MediaStreams: {} },
+          {
+            Id: "valid-source",
+            Protocol: "File",
+            Container: "mp3",
+            SupportsDirectPlay: true,
+            MediaStreams: [
+              {
+                Index: 0,
+                Type: "Audio",
+                Codec: "mp3",
+                Channels: 2,
+                SampleRate: 44_100,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: transport.fetch,
+    });
+
+    await expect(client.getPlaybackInfo("track-id")).resolves.toEqual({
+      mediaSources: [
+        {
+          id: "valid-source",
+          protocol: "File",
+          container: "mp3",
+          supportsDirectPlay: true,
+          supportsDirectStream: false,
+          supportsTranscoding: false,
+          audioStreams: [
+            {
+              index: 0,
+              codec: "mp3",
+              channels: 2,
+              sampleRate: 44_100,
+              isDefault: false,
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("rejects server identity changes and non-Jellyfin products", async () => {

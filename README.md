@@ -9,19 +9,20 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6, Tasks
-7.1–7.8c, and the Task 8.1 playback contract**: browser onboarding ends with a
-separate, durable Sonos-facing credential, the Jellyfin package provides the
-reusable authenticated music-data layer, and the SMAPI Worker resolves each
-authenticated Sonos mapping into a request-scoped Jellyfin data client. The
-Worker implements authenticated `getMetadata` routes for the fixed root menu,
-paginated artists, global or artist-filtered albums, and album or playlist
-tracks. It also implements the matching four-category search contract, the
-mandatory metadata methods, and a globally deterministic 30-second catalog
-refresh signal. Playback remains disabled until Tasks 8.3 and 8.4 implement
-the accepted contract.
+7.1–7.8c, and Tasks 8.1 and 8.3 of the playback milestone**: browser
+onboarding ends with a separate, durable Sonos-facing credential, the Jellyfin
+package provides the reusable authenticated music-data layer, and the SMAPI
+Worker resolves each authenticated Sonos mapping into a request-scoped Jellyfin
+data client. The Worker implements authenticated `getMetadata` routes for the
+fixed root menu, paginated artists, global or artist-filtered albums, and
+album or playlist tracks. It also implements the matching four-category
+search contract, the mandatory metadata methods, and a globally deterministic
+30-second catalog refresh signal. The Jellyfin client now resolves safe,
+deterministic playback targets; playback remains disabled until Task 8.4 adds
+the SMAPI media URI route.
 
-Task 7.9 real-system verification is in progress; Milestone 8 implementation
-and compatibility Tasks 8.3–8.5 and Milestones 9–12 remain future work.
+Task 7.9 real-system verification is in progress; Milestone 8 integration and
+compatibility Tasks 8.4–8.5 and Milestones 9–12 remain future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Album and playlist tracks are visible
@@ -35,6 +36,24 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 8.3 adds
+
+- The Jellyfin client sends the fixed Sonos `DeviceProfile` and negotiation
+  settings from the playback ADR in every `PlaybackInfo` request.
+- An exported resolver selects a direct-play or progressive-MP3 transcode
+  target using the validated audio stream, local format limits, deterministic
+  source ranking, and a fixed MIME mapping. Distinct direct-stream output stays
+  disabled by the accepted contract.
+- Direct URLs are constructed from the configured HTTPS Jellyfin base URL.
+  Transcode URLs are checked for exact origin and base-path containment, safe
+  path and query fields, and stable retry output. Generated query credentials
+  and session fields are removed; the only stream header is an internally
+  constructed `Authorization` value.
+- Malformed source candidates are skipped when another source remains valid.
+  Focused tests cover the four sanitized fixtures, source ranking, hostile URL
+  and header values, credential leakage, and retry stability. No SOAP or Worker
+  playback route is added in this task.
 
 ## What Task 8.1 adds
 
@@ -58,8 +77,7 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   conspicuously fake query-token marker, and the Jellyfin client test suite
   parses all four.
 - This task is contract and fixture work only. No production `getMediaURI`
-  route was added and tracks remain deliberately non-playable until Tasks 8.3
-  and 8.4.
+  route was added; tracks remain deliberately non-playable until Task 8.4.
 
 ## What Task 7.8c adds
 

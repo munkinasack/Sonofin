@@ -123,4 +123,21 @@ describe("Task 8.1 PlaybackInfo fixtures", () => {
       "ApiKey=task-8-1-fixture-token-not-a-credential",
     );
   });
+
+  it("rejects control characters in a transcode URL before normalization", async () => {
+    const payload = structuredClone(mp3Transcode);
+    const source = payload.MediaSources[0];
+    if (source === undefined) {
+      throw new Error("Missing fixture source");
+    }
+    source.TranscodingUrl = `\r\n${source.TranscodingUrl}\r\n`;
+    const client = new JellyfinApiClient({
+      connection: CONNECTION,
+      fetch: fixtureFetch(payload),
+    });
+
+    await expect(client.getPlaybackInfo(FIXTURES[3].itemId)).rejects.toMatchObject({
+      code: "invalid_server_response",
+    });
+  });
 });

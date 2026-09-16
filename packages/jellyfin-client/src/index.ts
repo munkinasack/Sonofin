@@ -1,5 +1,10 @@
 export { JellyfinAuthenticationClient } from "./client";
 export { JellyfinApiClient } from "./data-client";
+export {
+  JellyfinPlaybackTargetError,
+  resolveSonosPlaybackTarget,
+  type JellyfinPlaybackTarget,
+} from "./playback-target";
 export type {
   JellyfinAlbum,
   JellyfinAlbumPageOptions,

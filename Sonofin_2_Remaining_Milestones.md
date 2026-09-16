@@ -441,7 +441,7 @@ remains. Real-app validation stays in Task 7.9.
 - Task 8.4 owns any post-ADR change that makes those track representations
   playable once a safe media URI can also be returned.
 
-### [ ] Task 8.3 — Jellyfin playback-target resolver
+### [x] Task 8.3 — Jellyfin playback-target resolver
 
 **Budget:** 3.5–4.5 hours. **Prerequisite:** 8.1.
 
@@ -456,6 +456,17 @@ remains. Real-app validation stays in Task 7.9.
   URLs/headers, unexpected protocols, and stable retry behavior.
 
 **Not in scope:** SOAP or Worker route changes.
+
+**Evidence:** `getPlaybackInfo()` now sends the accepted Sonos device profile
+and explicit negotiation settings. The exported resolver chooses a bounded,
+deterministic direct-play or progressive-MP3 target, validates the selected
+source and stream locally, enforces HTTPS and exact origin/base-path rules,
+rejects unsafe paths, query fields, headers, and credential-bearing IDs, and
+removes verified Jellyfin query credentials and request-specific fields. Four
+sanitized playback fixtures plus adversarial source, URL, header, and retry
+tests pass. The full repository check passed with 771 unit/cross-Worker tests,
+seven isolated D1 tests, and both Worker dry-run builds. No SOAP or Worker
+playback route or `canPlay` change was made.
 
 ### [ ] Task 8.4 — `getMediaURI` integration
 
