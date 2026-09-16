@@ -403,7 +403,7 @@ Jellyfin. MP3, AAC, FLAC, and at least one negotiated-transcode case have
 credential-free compatibility evidence. Cloudflare does not proxy audio and no
 Jellyfin token appears in a URI.
 
-### [ ] Task 8.1 — Playback contract and security decision
+### [x] Task 8.1 — Playback contract and security decision
 
 **Budget:** 2.5–4 hours. **Prerequisite:** Milestone 7 code complete.
 
@@ -417,6 +417,19 @@ Jellyfin token appears in a URI.
   query strings, and no proxy or custom signed URL is added.
 - Check in sanitized MP3, AAC, FLAC, and transcode playback-info fixtures for
   later tasks. Do not add a production playback route in this task.
+
+**Evidence:** the accepted playback ADR pins the Sonos SMAPI behavior and the
+Jellyfin 10.11.11 source contract, defines an explicit Sonos `DeviceProfile`,
+disables the broken distinct direct-stream path, and fixes deterministic source
+selection, direct and transcode URL normalization, base-path containment, an
+empty `RequiredHttpHeaders` pass-through allow-list, one internally constructed
+authorization header, query-credential removal, MIME mapping, retry stability,
+and credential-safe failure/logging rules. Four full sanitized PlaybackInfo
+fixtures cover MP3, AAC-in-M4A, conforming FLAC, and high-resolution FLAC
+negotiated to progressive MP3. A fixture test parses all four through the
+existing Jellyfin client and verifies that they contain no server URL,
+filesystem path, or returned header. No production playback route or
+`canPlay` change is included.
 
 ### [x] Task 8.2 — `getMediaMetadata` (moved to Task 7.8b)
 

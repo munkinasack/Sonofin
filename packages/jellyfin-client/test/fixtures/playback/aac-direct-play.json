@@ -1,0 +1,37 @@
+{
+  "PlaySessionId": "22222222222222222222222222222222",
+  "MediaSources": [
+    {
+      "Protocol": "File",
+      "Id": "90000000000000000000000000000002",
+      "Type": "Default",
+      "Container": "m4a",
+      "Size": 5760000,
+      "Name": "Task 8.1 AAC direct-play fixture",
+      "IsRemote": false,
+      "RunTimeTicks": 1800000000,
+      "SupportsTranscoding": true,
+      "SupportsDirectStream": true,
+      "SupportsDirectPlay": true,
+      "MediaStreams": [
+        {
+          "Codec": "aac",
+          "Profile": "LC",
+          "DisplayTitle": "AAC LC - Stereo",
+          "BitRate": 256000,
+          "Channels": 2,
+          "ChannelLayout": "stereo",
+          "SampleRate": 48000,
+          "BitDepth": 16,
+          "IsDefault": true,
+          "Type": "Audio",
+          "Index": 0
+        }
+      ],
+      "Bitrate": 256000,
+      "RequiredHttpHeaders": {},
+      "TranscodingUrl": null,
+      "DefaultAudioStreamIndex": 0
+    }
+  ]
+}

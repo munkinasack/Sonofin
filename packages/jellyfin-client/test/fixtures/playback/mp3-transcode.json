@@ -1,0 +1,38 @@
+{
+  "PlaySessionId": "44444444444444444444444444444444",
+  "MediaSources": [
+    {
+      "Protocol": "File",
+      "Id": "90000000000000000000000000000004",
+      "Type": "Default",
+      "Container": "flac",
+      "Size": 97200000,
+      "Name": "Task 8.1 MP3 transcode fixture",
+      "IsRemote": false,
+      "RunTimeTicks": 1800000000,
+      "SupportsTranscoding": true,
+      "SupportsDirectStream": false,
+      "SupportsDirectPlay": false,
+      "MediaStreams": [
+        {
+          "Codec": "flac",
+          "DisplayTitle": "FLAC - 5.1 - 24-bit - 96 kHz",
+          "BitRate": 4320000,
+          "Channels": 6,
+          "ChannelLayout": "5.1",
+          "SampleRate": 96000,
+          "BitDepth": 24,
+          "IsDefault": true,
+          "Type": "Audio",
+          "Index": 0
+        }
+      ],
+      "Bitrate": 4320000,
+      "RequiredHttpHeaders": {},
+      "TranscodingUrl": "/audio/40000000000000000000000000000004/stream.mp3?&DeviceId=sonofin-task-8-1-fixture&MediaSourceId=90000000000000000000000000000004&AudioCodec=mp3&AudioStreamIndex=0&AudioBitrate=320000&AudioSampleRate=48000&PlaySessionId=44444444444444444444444444444444&ApiKey=task-8-1-fixture-token-not-a-credential&TranscodingMaxAudioChannels=2&EstimateContentLength=true&RequireAvc=false&EnableAudioVbrEncoding=false&mp3-audiochannels=2&allowAudioStreamCopy=false&allowVideoStreamCopy=false&TranscodeReasons=AudioChannelsNotSupported%2CAudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+      "TranscodingSubProtocol": "http",
+      "TranscodingContainer": "mp3",
+      "DefaultAudioStreamIndex": 0
+    }
+  ]
+}

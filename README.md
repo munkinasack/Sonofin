@@ -8,21 +8,24 @@
 > public, multi-tenant service.
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
-for Jellyfin. The repository currently implements **Milestone 6 plus Tasks
-7.1–7.8c**: browser onboarding ends with a separate, durable Sonos-facing
-credential, the Jellyfin package provides the reusable authenticated music-data
-layer, and the SMAPI Worker resolves each authenticated Sonos mapping into a
-request-scoped Jellyfin data client. The Worker implements authenticated
-`getMetadata` routes for the fixed root menu, paginated artists, global or
-artist-filtered albums, and album or playlist tracks. It also implements the
-matching four-category search contract, the mandatory metadata methods, and a
-globally deterministic 30-second catalog refresh signal.
+for Jellyfin. The repository currently implements **Milestone 6, Tasks
+7.1–7.8c, and the Task 8.1 playback contract**: browser onboarding ends with a
+separate, durable Sonos-facing credential, the Jellyfin package provides the
+reusable authenticated music-data layer, and the SMAPI Worker resolves each
+authenticated Sonos mapping into a request-scoped Jellyfin data client. The
+Worker implements authenticated `getMetadata` routes for the fixed root menu,
+paginated artists, global or artist-filtered albums, and album or playlist
+tracks. It also implements the matching four-category search contract, the
+mandatory metadata methods, and a globally deterministic 30-second catalog
+refresh signal. Playback remains disabled until Tasks 8.3 and 8.4 implement
+the accepted contract.
 
-Task 7.9 real-system verification is in progress; Milestones 8–12 remain future
-work. Onboarding, root browsing, artist albums, global album tracks, playlist
+Task 7.9 real-system verification is in progress; Milestone 8 implementation
+and compatibility Tasks 8.3–8.5 and Milestones 9–12 remain future work.
+Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Album and playlist tracks are visible
-but intentionally disabled while `canPlay` remains false before Milestone 8;
+but intentionally disabled while `canPlay` remains false before Task 8.4;
 clicking a track generated no `getMediaMetadata` call, so positive real-app
 validation of that route remains unexercised. Active and idle desktop/iPhone
 browse trials also generated no `getLastUpdate` call, so the real-app refresh
@@ -32,6 +35,31 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 8.1 adds
+
+- The accepted
+  [Sonos-to-Jellyfin playback ADR](docs/adr/0001-sonos-jellyfin-playback.md)
+  fixes the direct Sonos-to-Jellyfin topology, the Jellyfin 10.11.11
+  `DeviceProfile`, deterministic source selection, direct-play URL shape,
+  progressive-MP3 fallback, and exact MIME policy. Cloudflare negotiates the
+  target but never proxies audio.
+- Playback URLs must be HTTPS, same-origin, and confined to the configured
+  Jellyfin base path. Jellyfin's raw `TranscodingUrl` is treated as hostile:
+  the generated `ApiKey` is verified and removed, all other credential-like or
+  unknown query keys are rejected, and request-specific fields are discarded
+  so retries produce one stable URL.
+- Jellyfin `RequiredHttpHeaders` has an empty pass-through allow-list. The only
+  stream header is a Sonofin-constructed `Authorization` value carried through
+  Sonos `httpHeaders`; query credentials, arbitrary headers, redirects, custom
+  signed URLs, and a Worker audio proxy are prohibited.
+- Sanitized full PlaybackInfo fixtures cover MP3, AAC-in-M4A, 16-bit FLAC, and
+  24-bit/96-kHz FLAC negotiated to MP3. They contain only synthetic IDs and a
+  conspicuously fake query-token marker, and the Jellyfin client test suite
+  parses all four.
+- This task is contract and fixture work only. No production `getMediaURI`
+  route was added and tracks remain deliberately non-playable until Tasks 8.3
+  and 8.4.
 
 ## What Task 7.8c adds
 

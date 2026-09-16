@@ -1,0 +1,35 @@
+{
+  "PlaySessionId": "11111111111111111111111111111111",
+  "MediaSources": [
+    {
+      "Protocol": "File",
+      "Id": "90000000000000000000000000000001",
+      "Type": "Default",
+      "Container": "mp3",
+      "Size": 4320000,
+      "Name": "Task 8.1 MP3 direct-play fixture",
+      "IsRemote": false,
+      "RunTimeTicks": 1800000000,
+      "SupportsTranscoding": true,
+      "SupportsDirectStream": true,
+      "SupportsDirectPlay": true,
+      "MediaStreams": [
+        {
+          "Codec": "mp3",
+          "DisplayTitle": "MP3 - Stereo",
+          "BitRate": 192000,
+          "Channels": 2,
+          "ChannelLayout": "stereo",
+          "SampleRate": 44100,
+          "IsDefault": true,
+          "Type": "Audio",
+          "Index": 0
+        }
+      ],
+      "Bitrate": 192000,
+      "RequiredHttpHeaders": {},
+      "TranscodingUrl": null,
+      "DefaultAudioStreamIndex": 0
+    }
+  ]
+}

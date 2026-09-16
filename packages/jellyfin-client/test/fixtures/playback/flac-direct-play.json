@@ -1,0 +1,36 @@
+{
+  "PlaySessionId": "33333333333333333333333333333333",
+  "MediaSources": [
+    {
+      "Protocol": "File",
+      "Id": "90000000000000000000000000000003",
+      "Type": "Default",
+      "Container": "flac",
+      "Size": 24300000,
+      "Name": "Task 8.1 FLAC direct-play fixture",
+      "IsRemote": false,
+      "RunTimeTicks": 1800000000,
+      "SupportsTranscoding": true,
+      "SupportsDirectStream": true,
+      "SupportsDirectPlay": true,
+      "MediaStreams": [
+        {
+          "Codec": "flac",
+          "DisplayTitle": "FLAC - Stereo",
+          "BitRate": 1080000,
+          "Channels": 2,
+          "ChannelLayout": "stereo",
+          "SampleRate": 48000,
+          "BitDepth": 16,
+          "IsDefault": true,
+          "Type": "Audio",
+          "Index": 0
+        }
+      ],
+      "Bitrate": 1080000,
+      "RequiredHttpHeaders": {},
+      "TranscodingUrl": null,
+      "DefaultAudioStreamIndex": 0
+    }
+  ]
+}
