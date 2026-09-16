@@ -19,11 +19,14 @@ matching four-category search contract, the mandatory metadata methods, and a
 globally deterministic 30-second catalog refresh signal.
 
 Task 7.9 real-system verification is in progress; Milestones 8–12 remain future
-work. Onboarding, root browsing, artist albums, playlist contents, and paging
-past 100 artists have passed in a real Sonos/Jellyfin session. Playlist tracks
-are visible but intentionally disabled while `canPlay` remains false before
-Milestone 8. Album-track display and app-issued search remain under
-verification. The remaining product goals are in
+work. Onboarding, root browsing, artist albums, global album tracks, playlist
+contents, paging past 100 artists, and all four Classic Search categories have
+passed in a real Sonos/Jellyfin session. Album and playlist tracks are visible
+but intentionally disabled while `canPlay` remains false before Milestone 8;
+clicking a track generated no `getMediaMetadata` call, so positive real-app
+validation of that route remains unexercised. Active and idle desktop/iPhone
+browse trials also generated no `getLastUpdate` call, so the real-app refresh
+cadence and cache-refresh gate remain open. The remaining product goals are in
 [`Sonofin_2_Codex_Handoff.md`](Sonofin_2_Codex_Handoff.md), and the authoritative
 dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each

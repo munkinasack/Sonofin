@@ -363,16 +363,37 @@ media type to avoid advertising video playlists whose entries cannot satisfy
 the strict track contract. That repair passed the full repository check and was
 deployed as SMAPI Worker version `cc257452-f62c-4952-9321-b54aef6c4601`; the
 first repeated category/playlist trace returned HTTP 200 without the earlier
-generic playlist errors. Global album track display remains under a fresh user
-check even though traced album `getMetadata` and `getExtendedMetadata` calls
-return HTTP 200. The observed mobile Sandbox session sent no `search` SOAP
-request, so search remains unverified until the required capability map and a
-supported Classic Search or Preview client are used. A mobile Sandbox capture
-also showed the implementation's former ordinary root `Search` row instead of
-the native in-service search field. Sonos documents that Sandbox does not
-support Universal Search, so the native field cannot be verified there; a
-bounded source repair removes the redundant root row while retaining the
-reserved Classic Search container and the four-category `search` method.
+generic playlist errors. A fresh iPhone browse from the root through global
+Albums showed the album's track rows, while traced album `getMetadata` and
+`getExtendedMetadata` calls returned HTTP 200. The track remained disabled as
+expected under `canPlay: false`; clicking it generated no `getMediaMetadata`
+call, and a supported desktop client exposed no add-to-queue action. Positive
+real-app validation of that route therefore remains unexercised and is not
+claimed.
+
+The Sonos portal accepted and sent exactly one Personal SMAPI catalog with
+`artists` to `artist`, `albums` to `album`, `tracks` to `track`, and `playlists`
+to `playlist`, with no `all` or duplicate-library catalog. A supported Classic
+Search client showed correct artist, album, track, and playlist results, and the
+allow-listed trace showed app-issued search calls for all four categories
+returning HTTP 200. The earlier mobile Sandbox limitation remains expected:
+Sandbox mobile/Web apps do not expose Universal Search. A bounded source repair
+removes the redundant ordinary root `Search` row while retaining the reserved
+Classic Search container and four-category `search` method; the user confirmed
+the post-repair root presentation no longer shows the separate `Search` row.
+
+Idle and active-browse trials across the supported desktop client and iPhone
+app issued no `getLastUpdate` request. The portal also rejected a 30-second
+bootstrap polling interval as below its allowed minimum; no interval change was
+published and the Sandbox bootstrap interval remains 60 seconds. The token
+cadence, subsequent metadata refresh, and no-faster-than-advertised/no-recursive-
+loop checks therefore remain unexercised. Both remaining native checks now
+depend on completing the safe playback path in Tasks 8.1, 8.3, and 8.4: a
+queueable track is required for the real-app `getMediaMetadata` call, and
+playback is the remaining documented native `getLastUpdate` trigger after the
+browse-only clients emitted none. The current full repository check passed with
+28 test files and 750 unit/cross-Worker tests, seven isolated D1 tests, and
+dry-run builds for both Workers. Task 7.9 remains open.
 
 ## Milestone 8 — Playback
 
