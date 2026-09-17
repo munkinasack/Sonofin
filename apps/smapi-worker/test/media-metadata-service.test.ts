@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   JellyfinClientError,
+  type JellyfinConnection,
   type JellyfinDataClient,
   type JellyfinItemMetadata,
 } from "@sonofin/jellyfin-client";
@@ -18,11 +19,22 @@ const sonosMapping = {
   id: "a".repeat(64),
   jellyfinConnectionId: "J".repeat(32),
 };
+const connection = {
+  accessToken: "test-token",
+  deviceId: "test-device",
+  serverId: "test-server",
+  serverName: "Test Jellyfin",
+  serverUrl: "https://media.example.test/jellyfin",
+  serverVersion: "10.11.11",
+  userId: "test-user",
+  username: "test-user",
+} satisfies JellyfinConnection;
 
 function context(
   methods: Partial<JellyfinDataClient>,
 ): SmapiAuthenticatedRequestContext {
   return {
+    connection,
     jellyfin: methods as JellyfinDataClient,
     sonosMapping,
   };
@@ -36,7 +48,7 @@ function request(
 }
 
 describe("SonofinMediaMetadataService", () => {
-  it("loads a track and returns the browse-consistent conservative metadata", async () => {
+  it("loads a track and returns the browse-consistent playable metadata", async () => {
     const item = {
       albumId: "album-id",
       albumName: "An Album",
@@ -68,7 +80,7 @@ describe("SonofinMediaMetadataService", () => {
         artist: "An Artist",
         artistId: encodeSonosContentId({ kind: "artist", value: "artist-id" }),
         canAddToFavorites: false,
-        canPlay: false,
+        canPlay: true,
         canResume: false,
         canSeek: false,
         canSkip: false,

@@ -27,6 +27,16 @@ const jellyfin = new Proxy(
 ) as JellyfinDataClient;
 
 const context: SmapiAuthenticatedRequestContext = {
+  connection: {
+    accessToken: "synthetic-test-token",
+    deviceId: "synthetic-test-device",
+    serverId: "synthetic-test-server",
+    serverName: "Test Jellyfin",
+    serverUrl: "https://jellyfin.example.test",
+    serverVersion: "10.11.11",
+    userId: "synthetic-test-user",
+    username: "test-user",
+  },
   jellyfin,
   sonosMapping: {
     householdId: "Sonos_Household_CaseSensitive",
@@ -683,7 +693,7 @@ describe("SonofinBrowseService", () => {
         albumId: encodeSonosContentId({ kind: "album", value: albumId }),
         artist: "Artist",
         canAddToFavorites: false,
-        canPlay: false,
+        canPlay: true,
         canResume: false,
         canSeek: false,
         canSkip: false,

@@ -9,7 +9,7 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6, Tasks
-7.1–7.8c, and Tasks 8.1 and 8.3 of the playback milestone**: browser
+7.1–7.8c, and Tasks 8.1, 8.3, and 8.4 of the playback milestone**: browser
 onboarding ends with a separate, durable Sonos-facing credential, the Jellyfin
 package provides the reusable authenticated music-data layer, and the SMAPI
 Worker resolves each authenticated Sonos mapping into a request-scoped Jellyfin
@@ -18,25 +18,37 @@ fixed root menu, paginated artists, global or artist-filtered albums, and
 album or playlist tracks. It also implements the matching four-category
 search contract, the mandatory metadata methods, and a globally deterministic
 30-second catalog refresh signal. The Jellyfin client now resolves safe,
-deterministic playback targets; playback remains disabled until Task 8.4 adds
-the SMAPI media URI route.
+deterministic playback targets. The SMAPI Worker now returns a validated
+Jellyfin media URI and an Authorization header for direct player streaming.
 
-Task 7.9 real-system verification is in progress; Milestone 8 integration and
-compatibility Tasks 8.4–8.5, Milestones 9–12, and the added Service Bindings
-Milestone 10A remain future work.
+Task 7.9 real-system verification is in progress; Milestone 8 compatibility
+Task 8.5, Milestones 9–12, and the added Service Bindings Milestone 10A remain
+future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
-passed in a real Sonos/Jellyfin session. Album and playlist tracks are visible
-but intentionally disabled while `canPlay` remains false before Task 8.4;
-clicking a track generated no `getMediaMetadata` call, so positive real-app
-validation of that route remains unexercised. Active and idle desktop/iPhone
-browse trials also generated no `getLastUpdate` call, so the real-app refresh
-cadence and cache-refresh gate remain open. The remaining product goals are in
+passed in a real Sonos/Jellyfin session. Playback through the new media URI
+route and `getMediaMetadata` still need real Sonos validation in Task 8.5.
+Active and idle desktop/iPhone browse trials also generated no
+`getLastUpdate` call, so the real-app refresh cadence and cache-refresh gate
+remain open. The remaining product goals are in
 [`Sonofin_2_Codex_Handoff.md`](Sonofin_2_Codex_Handoff.md), and the authoritative
 dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 8.4 adds
+
+- Authenticated `getMediaURI` checks a canonical track ID against Jellyfin,
+  negotiates PlaybackInfo, and returns the Task 8.3 resolver's HTTPS target with
+  its internally constructed Authorization header. Sonos fetches audio
+  directly from Jellyfin; the Worker exposes no audio route.
+- The SOAP request validates WSDL field order and bounded optional action,
+  seconds, and device session token values. The response emits the URI and one
+  ordered header entry with XML escaping.
+- The shared track formatter now advertises `canPlay: true` across browse,
+  search, and metadata routes. Invalid IDs, stale items, incompatible sources,
+  and Jellyfin failures map to fixed credential-safe SOAP faults.
 
 ## What Task 8.3 adds
 

@@ -8,6 +8,7 @@ import { AesGcmTokenCipher } from "@sonofin/crypto";
 import {
   JellyfinApiClient,
   JellyfinClientError,
+  JellyfinPlaybackTargetError,
   type JellyfinConnection,
   type JellyfinDataClient,
 } from "@sonofin/jellyfin-client";
@@ -35,6 +36,7 @@ import {
   serializeGetExtendedMetadataResponse,
   serializeGetLastUpdateResponse,
   serializeGetMediaMetadataResponse,
+  serializeGetMediaURIResponse,
   serializeGetMetadataResponse,
   serializeSearchResponse,
   serializeSoapFault,
@@ -65,6 +67,10 @@ import {
   SonofinMediaMetadataService,
   type SmapiMediaMetadataService,
 } from "./media-metadata-service";
+import {
+  SonofinMediaURIService,
+  type SmapiMediaURIService,
+} from "./media-uri-service";
 import {
   SmapiSearchError,
   SonofinSearchService,
@@ -107,6 +113,11 @@ export {
   type SmapiMediaMetadataService,
 } from "./media-metadata-service";
 export {
+  SonofinMediaURIService,
+  type SmapiGetMediaURIRequest,
+  type SmapiMediaURIService,
+} from "./media-uri-service";
+export {
   SmapiSearchError,
   SonofinSearchService,
   type SmapiSearchErrorCode,
@@ -125,6 +136,7 @@ type SupportedMethod =
   | "getExtendedMetadata"
   | "getLastUpdate"
   | "getMediaMetadata"
+  | "getMediaURI"
   | "getMetadata"
   | "search";
 
@@ -191,6 +203,7 @@ export interface SmapiDependencies
   extendedMetadata: SmapiExtendedMetadataService;
   links: SmapiLinkService;
   mediaMetadata: SmapiMediaMetadataService;
+  mediaUri: SmapiMediaURIService;
   nowMilliseconds: () => number;
   onboardingUrl: string;
   sonosAuthentication: SmapiSonosAuthentication;
@@ -289,6 +302,20 @@ const INVALID_MEDIA_METADATA_PARAMETERS_FAULT = {
   reason: "invalid_parameters",
 } as const satisfies SmapiSafeSoapFault;
 
+const INVALID_MEDIA_URI_PARAMETERS_FAULT = {
+  faultCode: "soap:Client",
+  message: "The getMediaURI parameters are invalid",
+  outcome: "rejected",
+  reason: "invalid_parameters",
+} as const satisfies SmapiSafeSoapFault;
+
+const NO_COMPATIBLE_STREAM_FAULT = {
+  faultCode: "Server.ServiceUnknownError",
+  message: "No compatible audio stream is available",
+  outcome: "error",
+  reason: "internal_error",
+} as const satisfies SmapiSafeSoapFault;
+
 const INVALID_SEARCH_PARAMETERS_FAULT = {
   faultCode: "soap:Client",
   message: "The search parameters are invalid",
@@ -339,6 +366,18 @@ function mediaMetadataErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
     : BROWSE_ITEM_NOT_FOUND_FAULT;
 }
 
+function mediaURIErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
+  if (error instanceof JellyfinPlaybackTargetError) {
+    return NO_COMPATIBLE_STREAM_FAULT;
+  }
+  if (error instanceof SmapiBrowseError) {
+    return error.code === "invalid_parameters"
+      ? INVALID_MEDIA_URI_PARAMETERS_FAULT
+      : BROWSE_ITEM_NOT_FOUND_FAULT;
+  }
+  return mapJellyfinErrorToSoapFault(error);
+}
+
 function isXmlContentType(value: string | null): boolean {
   if (value === null) {
     return false;
@@ -355,6 +394,7 @@ function isSupportedMethod(method: string): method is SupportedMethod {
     method === "getExtendedMetadata" ||
     method === "getLastUpdate" ||
     method === "getMediaMetadata" ||
+    method === "getMediaURI" ||
     method === "getMetadata" ||
     method === "search"
   );
@@ -365,7 +405,6 @@ function classifyKnownUnsupportedMethod(
 ): Exclude<SmapiLogMethod, SupportedMethod> | undefined {
   switch (method) {
     case "getExtendedMetadataText":
-    case "getMediaURI":
       return method;
     default:
       return undefined;
@@ -548,6 +587,19 @@ const GET_METADATA_PARAMETER_ORDER = [
   "recursive",
 ] as const;
 const SEARCH_PARAMETER_ORDER = ["id", "term", "index", "count"] as const;
+const GET_MEDIA_URI_PARAMETER_ORDER = [
+  "id",
+  "action",
+  "secondsSinceExplicit",
+  "deviceSessionToken",
+] as const;
+const MEDIA_URI_ACTIONS = new Set([
+  "IMPLICIT",
+  "EXPLICIT:PLAY",
+  "EXPLICIT:SEEK",
+  "EXPLICIT:SKIP_FORWARD",
+  "EXPLICIT:SKIP_BACK",
+]);
 
 function hasOnlyIdParameter(
   parameters: Readonly<Record<string, string>>,
@@ -588,6 +640,38 @@ function hasValidSearchParameterShape(
   }
 
   return true;
+}
+
+function hasValidGetMediaURIParameters(
+  parameters: Readonly<Record<string, string>>,
+): boolean {
+  const names = Object.keys(parameters);
+  if (names[0] !== "id") {
+    return false;
+  }
+
+  let previousPosition = -1;
+  for (const name of names) {
+    const position = GET_MEDIA_URI_PARAMETER_ORDER.indexOf(
+      name as (typeof GET_MEDIA_URI_PARAMETER_ORDER)[number],
+    );
+    if (position < 0 || position <= previousPosition) {
+      return false;
+    }
+    previousPosition = position;
+  }
+
+  const action = parameters.action;
+  const seconds = parameters.secondsSinceExplicit;
+  const token = parameters.deviceSessionToken;
+  return (
+    requiredParameter(parameters, "id", 128) !== undefined &&
+    (action === undefined || MEDIA_URI_ACTIONS.has(action)) &&
+    (seconds === undefined ||
+      (/^(?:0|[1-9][0-9]*)$/u.test(seconds) &&
+        Number(seconds) <= 2_147_483_647)) &&
+    (token === undefined || [...token].length <= 2_048)
+  );
 }
 
 function requiredParameter(
@@ -929,6 +1013,50 @@ async function handleGetMediaMetadata(
   }
 }
 
+async function handleGetMediaURI(
+  parameters: Readonly<Record<string, string>>,
+  context: SmapiAuthenticatedRequestContext,
+  dependencies: SmapiDependencies,
+): Promise<RequestResult> {
+  try {
+    if (!hasValidGetMediaURIParameters(parameters)) {
+      throw new SmapiBrowseError("invalid_parameters");
+    }
+
+    const result = await dependencies.mediaUri.getMediaURI({
+      context,
+      id: parameters.id,
+      ...(parameters.action === undefined ? {} : { action: parameters.action }),
+      ...(parameters.secondsSinceExplicit === undefined
+        ? {}
+        : { secondsSinceExplicit: parameters.secondsSinceExplicit }),
+      ...(parameters.deviceSessionToken === undefined
+        ? {}
+        : { deviceSessionToken: parameters.deviceSessionToken }),
+    });
+    return {
+      contentKind: "track",
+      outcome: "success",
+      response: xmlResponse(
+        serializeContentResponse(() => serializeGetMediaURIResponse(result)),
+      ),
+      soapMethod: "getMediaURI",
+    };
+  } catch (error) {
+    const fault = mediaURIErrorToSoapFault(error);
+    return safeSoapFailure(
+      "getMediaURI",
+      fault,
+      failureDiagnostics(
+        fault,
+        error,
+        error instanceof SmapiBrowseError ? "metadata_service" : "jellyfin",
+        classifyContent(parameters.id),
+      ),
+    );
+  }
+}
+
 async function handleSearch(
   parameters: Readonly<Record<string, string>>,
   context: SmapiAuthenticatedRequestContext,
@@ -1064,6 +1192,7 @@ async function routeRequest(
     parsed.method === "getExtendedMetadata" ||
     parsed.method === "getLastUpdate" ||
     parsed.method === "getMediaMetadata" ||
+    parsed.method === "getMediaURI" ||
     parsed.method === "getMetadata" ||
     parsed.method === "search"
   ) {
@@ -1075,7 +1204,8 @@ async function routeRequest(
       const content =
         parsed.method === "getMetadata" ||
         parsed.method === "getExtendedMetadata" ||
-        parsed.method === "getMediaMetadata"
+        parsed.method === "getMediaMetadata" ||
+        parsed.method === "getMediaURI"
           ? classifyContent(parsed.parameters.id)
           : parsed.method === "search"
             ? classifySearchContent(parsed.parameters.id)
@@ -1105,6 +1235,14 @@ async function routeRequest(
 
     if (parsed.method === "getMediaMetadata") {
       return handleGetMediaMetadata(
+        parsed.parameters,
+        authenticated.context,
+        dependencies,
+      );
+    }
+
+    if (parsed.method === "getMediaURI") {
+      return handleGetMediaURI(
         parsed.parameters,
         authenticated.context,
         dependencies,
@@ -1241,6 +1379,7 @@ export default {
         extendedMetadata: new SonofinExtendedMetadataService(),
         links,
         mediaMetadata: new SonofinMediaMetadataService(),
+        mediaUri: new SonofinMediaURIService(),
         nowMilliseconds: () => Date.now(),
         onboardingUrl: env.ONBOARDING_URL ?? "",
         sonosAuthentication,

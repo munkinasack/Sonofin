@@ -40,6 +40,14 @@ export interface DeviceAuthTokenResult {
   privateKey: string;
 }
 
+export interface GetMediaURIResult {
+  readonly url: string;
+  readonly httpHeaders: readonly {
+    readonly header: "Authorization";
+    readonly value: string;
+  }[];
+}
+
 export interface SoapFaultDetail {
   exceptionInfo: string;
   sonosError: number;
@@ -138,6 +146,22 @@ function requireNonEmpty(
   if (typeof value !== "string" || value.trim() === "") {
     throw new TypeError(`${field} must not be empty`);
   }
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      (codePoint < 0x20 ||
+        (codePoint >= 0x7f && codePoint <= 0x9f) ||
+        codePoint === 0x2028 ||
+        codePoint === 0x2029)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function requireMaximumLength(
@@ -486,6 +510,60 @@ export function serializeGetMediaMetadataResponse(
       serializeTrackContents(result) +
       `</getMediaMetadataResult>` +
       `</getMediaMetadataResponse>`,
+  );
+}
+
+export function serializeGetMediaURIResponse(result: GetMediaURIResult): string {
+  if (typeof result !== "object" || result === null) {
+    throw new TypeError("getMediaURI result must be an object");
+  }
+  requireNonEmpty(result.url, "url");
+  if (result.url.length > 4_096 || hasControlCharacter(result.url)) {
+    throw new TypeError("getMediaURI URL is invalid");
+  }
+
+  let url: URL;
+  try {
+    url = new URL(result.url);
+  } catch {
+    throw new TypeError("getMediaURI URL is invalid");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== ""
+  ) {
+    throw new TypeError("getMediaURI URL is invalid");
+  }
+  if (!Array.isArray(result.httpHeaders) || result.httpHeaders.length !== 1) {
+    throw new TypeError("getMediaURI requires one permitted HTTP header");
+  }
+
+  const header = result.httpHeaders[0];
+  if (
+    typeof header !== "object" ||
+    header === null ||
+    header.header !== "Authorization"
+  ) {
+    throw new TypeError("getMediaURI HTTP header is invalid");
+  }
+  requireNonEmpty(header.value, "HTTP header value");
+  if (
+    header.value.length > 8_192 ||
+    hasControlCharacter(header.value)
+  ) {
+    throw new TypeError("getMediaURI HTTP header value is invalid");
+  }
+
+  return soapEnvelope(
+    `<getMediaURIResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `<getMediaURIResult>${escapeXmlText(result.url)}</getMediaURIResult>` +
+      `<httpHeaders><httpHeader>` +
+      `<header>${escapeXmlText(header.header)}</header>` +
+      `<value>${escapeXmlText(header.value)}</value>` +
+      `</httpHeader></httpHeaders>` +
+      `</getMediaURIResponse>`,
   );
 }
 

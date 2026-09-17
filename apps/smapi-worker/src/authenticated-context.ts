@@ -34,7 +34,9 @@ export type SmapiJellyfinDataClientFactory = (
 export interface SmapiAuthenticatedRequestContext {
   /** The exact, case-sensitive association authenticated for this request. */
   readonly sonosMapping: SonosAuthenticationMapping;
-  /** A request-scoped client that keeps the decrypted token encapsulated. */
+  /** The decrypted connection is confined to this authenticated request. */
+  readonly connection: JellyfinConnection;
+  /** A request-scoped client for Jellyfin catalog and playback negotiation. */
   readonly jellyfin: JellyfinDataClient;
 }
 
@@ -181,6 +183,7 @@ export async function resolveSmapiAuthenticatedContext(
   return {
     outcome: "success",
     context: {
+      connection,
       jellyfin,
       sonosMapping,
     },

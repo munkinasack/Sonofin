@@ -34,6 +34,7 @@ import {
   SonofinBrowseService,
   SonofinExtendedMetadataService,
   SonofinMediaMetadataService,
+  SonofinMediaURIService,
   SonofinSearchService,
 } from "../../smapi-worker/src";
 import { handleRequest as handleOnboarding } from "../src";
@@ -295,6 +296,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
       links,
       logSink,
       mediaMetadata: new SonofinMediaMetadataService(),
+      mediaUri: new SonofinMediaURIService(),
       nowMilliseconds: () => now * 1_000,
       onboardingUrl: "https://auth.example.test/onboarding",
       search: new SonofinSearchService(),

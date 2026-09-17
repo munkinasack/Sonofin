@@ -18,6 +18,7 @@ import smapiWorker, {
   SonofinBrowseService,
   SonofinExtendedMetadataService,
   SonofinMediaMetadataService,
+  SonofinMediaURIService,
   SonofinSearchService,
   type SmapiDependencies,
   type SmapiGetExtendedMetadataRequest,
@@ -148,6 +149,7 @@ function createDependencies(
     jellyfinConnections: createJellyfinConnections(),
     links: createLinks(),
     mediaMetadata: new SonofinMediaMetadataService(),
+    mediaUri: new SonofinMediaURIService(),
     nowMilliseconds: () => Date.now(),
     onboardingUrl: "https://auth.example.test/onboarding",
     search: new SonofinSearchService(),
@@ -289,6 +291,7 @@ describe("SMAPI Worker", () => {
     );
     expect(getExtendedMetadata).toHaveBeenCalledWith({
       context: {
+        connection: JELLYFIN_CONNECTION,
         jellyfin: FAKE_DATA_CLIENT,
         sonosMapping: {
           householdId: "Sonos_household",
@@ -367,7 +370,7 @@ describe("SMAPI Worker", () => {
           title: "Track <one>",
           trackMetadata: {
             album: "Album & one",
-            canPlay: false,
+            canPlay: true,
             canSkip: false,
           },
         });
@@ -391,13 +394,14 @@ describe("SMAPI Worker", () => {
         `<getMediaMetadataResult><id>${encodedTrackId}</id>` +
         "<itemType>track</itemType><title>Track &lt;one&gt;</title>" +
         "<mimeType>audio/flac</mimeType><trackMetadata>" +
-        "<album>Album &amp; one</album><canPlay>false</canPlay>" +
+        "<album>Album &amp; one</album><canPlay>true</canPlay>" +
         "<canSkip>false</canSkip></trackMetadata>" +
         "</getMediaMetadataResult></getMediaMetadataResponse>",
     );
     expect(body).not.toContain("<mediaMetadata>");
     expect(getMediaMetadata).toHaveBeenCalledWith({
       context: {
+        connection: JELLYFIN_CONNECTION,
         jellyfin: FAKE_DATA_CLIENT,
         sonosMapping: {
           householdId: "Sonos_household",
@@ -511,6 +515,7 @@ describe("SMAPI Worker", () => {
     );
     expect(getMetadata).toHaveBeenCalledWith({
       context: {
+        connection: JELLYFIN_CONNECTION,
         jellyfin: FAKE_DATA_CLIENT,
         sonosMapping: {
           householdId: "Sonos_household",
@@ -707,7 +712,7 @@ describe("SMAPI Worker", () => {
             title: "Söngur <東京> & 🎵",
             trackMetadata: {
               canAddToFavorites: false,
-              canPlay: false,
+              canPlay: true,
               canResume: false,
               canSeek: false,
               canSkip: false,
@@ -735,7 +740,7 @@ describe("SMAPI Worker", () => {
         `<mediaMetadata><id>${trackId}</id><itemType>track</itemType>` +
         "<title>Söngur &lt;東京&gt; &amp; 🎵</title>" +
         "<mimeType>audio/flac</mimeType><trackMetadata>" +
-        "<canPlay>false</canPlay><canSkip>false</canSkip>" +
+        "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
         "<canResume>false</canResume><canSeek>false</canSeek>" +
         "</trackMetadata></mediaMetadata></searchResult></searchResponse>",
@@ -743,6 +748,7 @@ describe("SMAPI Worker", () => {
     expect(search).toHaveBeenCalledOnce();
     expect(search).toHaveBeenCalledWith({
       context: {
+        connection: JELLYFIN_CONNECTION,
         jellyfin: FAKE_DATA_CLIENT,
         sonosMapping: {
           householdId: "Sonos_household",
@@ -1174,7 +1180,7 @@ describe("SMAPI Worker", () => {
         "<artist>Björk &amp; 二</artist>" +
         `<albumId>${encodedAlbumId}</albumId>` +
         "<album>Álbum &lt;一&gt;</album><duration>123</duration>" +
-        "<trackNumber>4</trackNumber><canPlay>false</canPlay>" +
+        "<trackNumber>4</trackNumber><canPlay>true</canPlay>" +
         "<canSkip>false</canSkip><canAddToFavorites>false</canAddToFavorites>" +
         "<canResume>false</canResume><canSeek>false</canSeek>" +
         "</trackMetadata></mediaMetadata></getMetadataResult>",
@@ -1285,21 +1291,21 @@ describe("SMAPI Worker", () => {
         `<mediaMetadata><id>${encodedDuplicateTrackId}</id>` +
         "<itemType>track</itemType><title>Repeated &lt;Track&gt;</title>" +
         "<mimeType>audio/mpeg</mimeType><trackMetadata>" +
-        "<canPlay>false</canPlay><canSkip>false</canSkip>" +
+        "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
         "<canResume>false</canResume><canSeek>false</canSeek>" +
         "</trackMetadata></mediaMetadata>" +
         `<mediaMetadata><id>${encodedDuplicateTrackId}</id>` +
         "<itemType>track</itemType><title>Repeated &lt;Track&gt;</title>" +
         "<mimeType>audio/mpeg</mimeType><trackMetadata>" +
-        "<canPlay>false</canPlay><canSkip>false</canSkip>" +
+        "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
         "<canResume>false</canResume><canSeek>false</canSeek>" +
         "</trackMetadata></mediaMetadata>" +
         `<mediaMetadata><id>${encodedCollisionTrackId}</id>` +
         "<itemType>track</itemType><title>Collision Canary</title>" +
         "<mimeType>audio/flac</mimeType><trackMetadata>" +
-        "<canPlay>false</canPlay><canSkip>false</canSkip>" +
+        "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
         "<canResume>false</canResume><canSeek>false</canSeek>" +
         "</trackMetadata></mediaMetadata></getMetadataResult>",
@@ -1916,7 +1922,7 @@ describe("SMAPI Worker", () => {
     expect(logged).not.toContain(JELLYFIN_CONNECTION.serverUrl);
   });
 
-  it("retains the exact authenticated mapping without retaining raw credentials", async () => {
+  it("retains the exact mapping and Jellyfin connection without Sonos credentials", async () => {
     const sonosAuthentication = createSonosAuthentication();
     const sonosMapping = {
       householdId: "Sonos_Household_CaseSensitive_🎵",
@@ -1942,6 +1948,7 @@ describe("SMAPI Worker", () => {
 
     expect(result).toEqual({
       context: {
+        connection: JELLYFIN_CONNECTION,
         jellyfin: FAKE_DATA_CLIENT,
         sonosMapping,
       },
@@ -1953,7 +1960,6 @@ describe("SMAPI Worker", () => {
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("never-retain-this-auth-token");
     expect(serialized).not.toContain("never-retain-this-private-key");
-    expect(serialized).not.toContain(JELLYFIN_ACCESS_TOKEN);
   });
 
   it("creates pending state before returning a browser getAppLink response", async () => {

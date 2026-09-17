@@ -211,7 +211,7 @@ export function formatJellyfinTrackAsSonosBrowseTrack(
     ...(duration === undefined ? {} : { duration }),
     ...(trackNumber === undefined ? {} : { trackNumber }),
     canAddToFavorites: false,
-    canPlay: false,
+    canPlay: true,
     canResume: false,
     canSeek: false,
     canSkip: false,

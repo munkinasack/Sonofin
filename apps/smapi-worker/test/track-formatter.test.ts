@@ -21,7 +21,7 @@ function track(overrides: Partial<JellyfinTrack> = {}): JellyfinTrack {
 }
 
 describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
-  it("maps normalized metadata, identifiers, duration units, and conservative flags", () => {
+  it("maps normalized metadata, identifiers, duration units, and playable track flags", () => {
     const result = formatJellyfinTrackAsSonosBrowseTrack(
       track({
         albumId: "album-二",
@@ -53,7 +53,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
           value: "artist-一",
         }),
         canAddToFavorites: false,
-        canPlay: false,
+        canPlay: true,
         canResume: false,
         canSeek: false,
         canSkip: false,
@@ -103,7 +103,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
       title: "Track title",
       trackMetadata: {
         canAddToFavorites: false,
-        canPlay: false,
+        canPlay: true,
         canResume: false,
         canSeek: false,
         canSkip: false,
@@ -134,7 +134,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
     expect(result.trackMetadata).toEqual({
       artist: "Artist without a usable identifier",
       canAddToFavorites: false,
-      canPlay: false,
+      canPlay: true,
       canResume: false,
       canSeek: false,
       canSkip: false,

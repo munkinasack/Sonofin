@@ -469,7 +469,7 @@ tests pass. The full repository check passed with 771 unit/cross-Worker tests,
 seven isolated D1 tests, and both Worker dry-run builds. No SOAP or Worker
 playback route or `canPlay` change was made.
 
-### [ ] Task 8.4 — `getMediaURI` integration
+### [x] Task 8.4 — `getMediaURI` integration
 
 **Budget:** 3–4 hours. **Prerequisites:** 7.8b and 8.3.
 
@@ -481,6 +481,18 @@ playback route or `canPlay` change was made.
   upstream failures to credential-safe Sonos faults.
 - Verify that the Worker returns metadata only and never fetches or proxies the
   audio response body. Test repeated requests and URL/header escaping.
+
+**Evidence:** The SMAPI Worker authenticates and validates a WSDL-ordered
+`getMediaURI` request, checks that the canonical ID still resolves to the same
+Jellyfin track, negotiates PlaybackInfo, and serializes the resolver's HTTPS
+target with one constructed Authorization header. The shared track formatter
+advertises `canPlay: true` across browse, search, and metadata. Fixed SOAP
+faults cover invalid parameters and items, expired Jellyfin credentials,
+incompatible streams, and upstream failures. Tests cover stable repeat
+responses, XML escaping, redaction, and the absence of a Worker audio fetch.
+`pnpm check` passed with 794 unit/cross-Worker tests, seven isolated D1 tests,
+and both Worker dry-run builds. Task 8.5 still needs real Sonos playback and
+format verification.
 
 ### [ ] Task 8.5 — Real format and playback compatibility matrix
 

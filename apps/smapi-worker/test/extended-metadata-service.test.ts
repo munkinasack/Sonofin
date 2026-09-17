@@ -19,10 +19,22 @@ const sonosMapping = {
   jellyfinConnectionId: "J".repeat(32),
 };
 
+const connection: SmapiAuthenticatedRequestContext["connection"] = {
+  accessToken: "synthetic-test-token",
+  deviceId: "synthetic-test-device",
+  serverId: "synthetic-test-server",
+  serverName: "Test Jellyfin",
+  serverUrl: "https://jellyfin.example.test",
+  serverVersion: "10.11.11",
+  userId: "synthetic-test-user",
+  username: "test-user",
+};
+
 function context(
   methods: Partial<JellyfinDataClient>,
 ): SmapiAuthenticatedRequestContext {
   return {
+    connection,
     jellyfin: methods as JellyfinDataClient,
     sonosMapping,
   };
