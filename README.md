@@ -22,7 +22,8 @@ deterministic playback targets; playback remains disabled until Task 8.4 adds
 the SMAPI media URI route.
 
 Task 7.9 real-system verification is in progress; Milestone 8 integration and
-compatibility Tasks 8.4–8.5 and Milestones 9–12 remain future work.
+compatibility Tasks 8.4–8.5, Milestones 9–12, and the added Service Bindings
+Milestone 10A remain future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Album and playlist tracks are visible

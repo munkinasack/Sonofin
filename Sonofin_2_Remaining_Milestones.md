@@ -3,14 +3,16 @@
 This document decomposes Milestones 7 through 12 from
 `Sonofin_2_Codex_Handoff.md` into bounded Codex tasks. The repository baseline
 is the checked-in Milestone 6 implementation described by `README.md`.
+Milestone 10A adds the later Service Bindings architecture decision before
+security hardening and production deployment.
 
 The broad milestone goals in the handoff remain authoritative product scope.
 The numbered tasks below are authoritative for execution order and task
 boundaries. A whole remaining milestone must not be assigned as one Codex task.
 
-The plan contains 36 primary runs: 29 implementation/documentation runs and 7
-explicit research, real-system verification, or deployment gates. The two
-deployment gates remain externally authorized operations, not implied actions.
+The plan contains the original 36 primary runs plus seven Milestone 10A runs.
+Staging and production deployment gates remain externally authorized
+operations, not implied actions.
 
 ## Required Codex preset
 
@@ -77,21 +79,20 @@ the repository green and describe the smallest follow-up task required.
 
 ## External-entry gates
 
-Tasks 7.9, 8.5, 12.5, and 12.6 need systems outside this repository. Do not
-start their five-hour clocks until the listed server, hardware, account,
-domain, test media, and secrets are ready. Planning these tasks does not
-authorize a staging or production deployment. Tasks 12.5 and 12.6 each require
-separate explicit authorization when they are run.
+Tasks 7.9, 8.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
+repository. Do not start their five-hour clocks until the listed server,
+hardware, account, domain, test media, and secrets are ready. Planning these
+tasks does not authorize a staging or production deployment. Tasks 10A.7,
+12.5, and 12.6 each require explicit authorization when they are run.
 
 ## Dependency order
 
 Use the task order within each milestone. The cross-milestone critical path is:
 
 ```text
-7.1 + 7.2 -> 7.3 ... 7.8 -> 7.8a -> 7.8b -> 7.8c -> 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
-                                                                           -> 9.1 -> 9.2 -> 10.1 ... 10.6
-                                                                                                -> 11.1 ... 11.6
-                                                                                                           -> 12.1 ... 12.6
+7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
+    -> 9.1 -> 9.2 -> 10.1 ... 10.6 -> 10A.1 ... 10A.7
+    -> 11.1 ... 11.6 -> 12.1 ... 12.6
 ```
 
 Security research in 11.1 can begin earlier as a separate read-only task, but
@@ -613,6 +614,130 @@ the configured inactivity period without breaking active issued credentials.
   coverage, local scheduled-handler instructions, and deployment notes.
 - Mark Milestone 10 complete only after all three Workers pass `pnpm check`.
 
+## Milestone 10A — Service Bindings and method Workers
+
+Milestone exit: `sonofin-smapi` remains the sole public SOAP endpoint and routes
+each supported primary SMAPI method to its own private Worker through a
+Cloudflare Service Binding. The method Workers are `sonofin-get-app-link`,
+`sonofin-get-device-auth-token`, `sonofin-get-metadata`,
+`sonofin-get-extended-metadata`, `sonofin-get-media-metadata`,
+`sonofin-search`, `sonofin-get-last-update`, and, after Task 8.4,
+`sonofin-get-media-uri`. A method added later gets a dedicated Worker when it
+becomes supported. `sonofin-auth` onboarding and `sonofin-maintenance` retain
+their distinct entry points. Keep the existing `@sonofin/*` packages as shared
+code; a package is not automatically another Worker.
+
+The objective is lower CPU time **per Worker invocation**, especially for the
+public SMAPI Worker. Splitting code does not itself reduce end-to-end CPU use:
+Cloudflare bills the total CPU across a caller and its Service Binding targets
+on Workers Standard. See the
+[Service Bindings API](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+and [pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+documentation. Measure gateway CPU, each method Worker's CPU, the sum per
+Sonos operation, response latency, error rate, and invocation count against
+the pre-split baseline. Preserve the SOAP contract and existing credential,
+SSRF, bounded-read, and logging invariants. Do not call a method Worker through
+a public URL. The target Worker should return a safe 404 from `fetch` and be
+deployed without a public route or workers.dev exposure; use an awaited RPC
+entrypoint for typed method calls. Keep one gateway-to-method hop per request
+and stay within Cloudflare's invocation and subrequest limits.
+
+### [ ] Task 10A.1 — CPU baseline and Service Binding ADR
+
+**Budget:** 3–4 hours. **Prerequisites:** Tasks 8.4–8.5 and Milestone 10
+complete; a representative staging Sonos/Jellyfin workload and access to its
+Cloudflare Worker metrics or traces. **Gate:** measurement and design only.
+
+- Record reproducible request mixes, sample sizes, p50/p95/p99 CPU and latency,
+  error rates, and invocation counts for all supported methods and onboarding.
+  Capture only aggregate, credential-safe data. Profile CPU hot paths locally.
+- Write an ADR for the exact gateway/RPC boundary, versioned request/result and
+  fault contracts, authentication placement, secret/D1 ownership, least-privilege
+  bindings, and rollout/rollback order. Keep SOAP parsing, SOAPAction agreement,
+  serialization, and public logging at the gateway. Credential-bearing method
+  Workers validate their own credentials before accessing Jellyfin or D1; do
+  not trust an unverified household ID or caller-supplied authorization context.
+- Define a repeatable comparison using the same workload and deployment tier.
+  Success requires lower p50 and p95 CPU for `sonofin-smapi`, no material
+  regression in summed CPU or p95 Sonos response latency, and no increase in
+  protocol errors. Record the numeric regression tolerance before coding.
+
+### [ ] Task 10A.2 — Private Worker contract and local test harness
+
+**Budget:** 3–4.5 hours. **Prerequisite:** accepted 10A.1 ADR.
+
+- Add the shared typed RPC contracts and thin gateway adapter behind injectable
+  dependencies. Preserve existing `handleRequest` unit-test seams and SOAP
+  fault/log classifications. Bound and validate all values crossing RPC.
+- Add a reusable Worker package/build pattern, placeholder-only binding examples,
+  and a multi-Worker local development/test path with the same D1 persistence.
+  Test target availability, timeout/rejection, response size, and safe gateway
+  fault behavior. Check that method Workers have no public route.
+- Document target-first deployment and mixed-version compatibility; deploy an
+  additive method interface before switching the gateway to call it.
+
+### [ ] Task 10A.3 — Link and credential method Workers
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 10A.2.
+
+- Move `getAppLink` and `getDeviceAuthToken` execution to their **two distinct**
+  method Workers via Service Bindings. Give each only the D1 binding and secrets
+  it needs. Keep link issuance, claim, Sonos credential issuance, retry
+  idempotence, exact household binding, and SOAP fault behavior unchanged.
+- Test successful calls, replay, expired/unknown links, concurrent claims,
+  binding failures, secret redaction, and the full cross-Worker onboarding flow.
+
+### [ ] Task 10A.4 — Browse metadata method Workers
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 10A.3.
+
+- Move `getMetadata` and `getExtendedMetadata` execution to **separate**
+  method Workers. Authenticate independently inside each Worker; reuse the
+  existing repository and Jellyfin client contracts without duplicating their
+  security logic.
+- Preserve canonical IDs, pagination, ordering, Sonos element order, safe
+  faults, bounded Jellyfin responses, and exact household/device bindings.
+  Exercise root, artists, albums, playlists, and invalid/expired credentials.
+
+### [ ] Task 10A.5 — Playback metadata and URI method Workers
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 10A.4 and Task 8.4.
+
+- Move `getMediaMetadata` and `getMediaURI` execution to **separate** method
+  Workers through their own bindings. Preserve Task 8's playback authorization,
+  native/transcode decisions, URL/header safety, and real-format behavior.
+- Add focused contract and real-D1 tests for track IDs, stale credentials,
+  rejected targets, binding errors, and redaction. Do not introduce media
+  proxying or a second public playback endpoint.
+
+### [ ] Task 10A.6 — Search and refresh method Workers
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 10A.5.
+
+- Move `search` and `getLastUpdate` execution to **separate** method Workers.
+  Keep category filtering, pagination, fixed fault mapping, and the deterministic
+  30-second refresh token and poll interval unchanged.
+- Verify every supported method is now routed over exactly one awaited Service
+  Binding call; unsupported methods still receive the existing safe SOAP fault.
+  Run `pnpm check` across all Worker builds and integration tests.
+
+### [ ] Task 10A.7 — Staging comparison and topology closeout
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 10A.6, staging access, and explicit
+authorization for the staging deployment. **Gate:** no production deployment.
+
+- Deploy method Workers first and the gateway second. Run the same real Sonos
+  workload and failure probes as 10A.1. Capture aggregate per-Worker and
+  end-to-end CPU, p50/p95/p99 latency, invocation/subrequest counts, errors,
+  and cost-relevant total CPU. Compare to the ADR's predeclared tolerances.
+- If the gateway CPU goal or end-to-end gates fail, profile the regression and
+  repair within scope or roll back the gateway while leaving compatible target
+  Workers. Do not mark this milestone complete solely because CPU moved from
+  one Worker to another.
+- Update deployment/operations documentation, release checks, and the Worker
+  inventory used by Milestones 11–12; run `pnpm check` and close the milestone
+  only after the measured and protocol gates pass.
+
 ## Milestone 11 — Security hardening
 
 Milestone exit: arbitrary Jellyfin hostnames are subject to a documented and
@@ -622,7 +747,7 @@ enable local HTTP accidentally, and adversarial regression tests pass.
 
 ### [ ] Task 11.1 — DNS rebinding feasibility and SSRF ADR
 
-**Budget:** 2.5–4 hours. **Prerequisite:** Milestone 10 code complete.
+**Budget:** 2.5–4 hours. **Prerequisite:** Milestone 10A complete.
 
 - Verify current Cloudflare Workers `fetch`, DNS, egress, Gateway/VPC, and local
   test-runtime guarantees from primary documentation and a minimal safe
@@ -691,9 +816,10 @@ Cloudflare capability/account decision.
 
 **Budget:** 3.5–4.5 hours. **Prerequisites:** 11.2–11.5.
 
-- Audit every public route and outbound path for bounded reads, timeouts,
-  redirect rejection, fixed paths, XML/HTML/header injection, query credentials,
-  and allow-listed logging. Include playback-derived URLs and headers.
+- Audit every public route, Service Binding/RPC boundary, and outbound path for
+  bounded reads, timeouts, redirect rejection, fixed paths, XML/HTML/header
+  injection, query credentials, and allow-listed logging. Include
+  playback-derived URLs and headers.
 - Add table-driven/fuzz-style regression cases for hostile Unicode, IP and URL
   spellings, oversized values, malformed UTF-8/XML/forms/JSON, and secret
   canaries. Use constant-time comparison where plaintext secret comparison
@@ -714,9 +840,10 @@ credential-safe evidence.
 
 **Budget:** 3–4 hours. **Prerequisite:** Milestone 11 complete.
 
-- Inventory every secret, variable, D1 binding, rate-limit/egress binding,
-  route/domain, Cron Trigger, compatibility date, and deployment dependency for
-  all three Workers. Make checked-in examples consistent and placeholder-only.
+- Inventory every secret, variable, D1 binding, Service Binding,
+  rate-limit/egress binding, route/domain, Cron Trigger, compatibility date,
+  and deployment dependency for the gateway, all method Workers, onboarding,
+  and maintenance. Make checked-in examples consistent and placeholder-only.
 - Add one documented release-check command that covers lint, strict types, unit
   and cross-Worker tests, real-D1 migrations/cleanup, and dry-run builds.
 - Verify fresh local migration and local scheduled-handler workflows without

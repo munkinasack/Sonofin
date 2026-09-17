@@ -298,6 +298,13 @@ Do NOT create a separate Worker for every tiny action.
 
 For example, do NOT create a Worker just to update `last_used_at`.
 
+The initial implementation starts with three logical Workers. Before security
+hardening and production deployment, Milestone 10A in
+`Sonofin_2_Remaining_Milestones.md` converts each supported primary SMAPI method
+to a dedicated private Worker called from the public `sonofin-smapi` gateway by
+a Service Binding. This later decision supersedes the initial SMAPI Worker
+breakdown below; small shared helpers and activity touches remain package code.
+
 Start with three logical Workers:
 
 ## A. `sonofin-smapi`
@@ -574,7 +581,7 @@ Keep this package free of Sonos-specific XML formatting.
 
 ---
 
-> **Execution note for Milestones 7–12:** The sections below describe broad
+> **Execution note for Milestones 7–12 and 10A:** The sections below describe broad
 > product goals, not single Codex tasks. Do not assign an entire remaining
 > milestone to one run. Use
 > [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md) as
