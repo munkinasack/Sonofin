@@ -3,14 +3,16 @@
 This document decomposes Milestones 7 through 12 from
 `Sonofin_2_Codex_Handoff.md` into bounded Codex tasks. The repository baseline
 is the checked-in Milestone 6 implementation described by `README.md`.
-Milestone 10A adds the later Service Bindings architecture decision before
-security hardening and production deployment.
+Milestone 8A adds authenticated artwork after playback verification. Milestone
+10A adds the later Service Bindings architecture decision before security
+hardening and production deployment.
 
 The broad milestone goals in the handoff remain authoritative product scope.
 The numbered tasks below are authoritative for execution order and task
 boundaries. A whole remaining milestone must not be assigned as one Codex task.
 
-The plan contains the original 36 primary runs plus seven Milestone 10A runs.
+The plan contains the original 36 primary runs, five Milestone 8A runs, and
+seven Milestone 10A runs.
 Staging and production deployment gates remain externally authorized
 operations, not implied actions.
 
@@ -79,7 +81,7 @@ the repository green and describe the smallest follow-up task required.
 
 ## External-entry gates
 
-Tasks 7.9, 8.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
+Tasks 7.9, 8.5, 8A.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
 repository. Do not start their five-hour clocks until the listed server,
 hardware, account, domain, test media, and secrets are ready. Planning these
 tasks does not authorize a staging or production deployment. Tasks 10A.7,
@@ -91,7 +93,7 @@ Use the task order within each milestone. The cross-milestone critical path is:
 
 ```text
 7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
-    -> 9.1 -> 9.2 -> 10.1 ... 10.6 -> 10A.1 ... 10A.7
+    -> 8A.1 ... 8A.5 -> 9.1 -> 9.2 -> 10.1 ... 10.6 -> 10A.1 ... 10A.7
     -> 11.1 ... 11.6 -> 12.1 ... 12.6
 ```
 
@@ -509,6 +511,106 @@ hardware plus known MP3, AAC, FLAC, and forced-transcode fixtures.
 - Fix only bounded defects; split larger compatibility failures. Mark Milestone
   8 complete only when required playback cases succeed and `pnpm check` passes.
 
+## Milestone 8A — Authenticated artwork
+
+Milestone exit: Sonos receives album and track artwork through short, HTTPS
+`albumArtURI` values; every image request authenticates the exact Sonos
+household/device link before a bounded Jellyfin fetch or edge-cache lookup.
+Missing or invalid artwork leaves browsing and playback usable. This milestone
+follows the playback compatibility gate so its image behavior can be verified
+against the same real Sonos account. It does not add audio proxying, image
+preloading, custom browse icons, or an artwork-specific method Worker.
+
+### [ ] Task 8A.1 — Artwork protocol and security contract
+
+**Budget:** 2.5–4 hours. **Prerequisite:** Task 8.5 complete. **Gate:**
+contract and fixture work only; do not emit artwork URLs yet.
+
+- Verify the current Sonos `albumArtURI` element positions, 128-character URI
+  limit, `requiresAuthentication="true"` behavior, image substitution rules,
+  and `X-HouseHoldId`/`X-AuthKey` request headers against primary Sonos docs.
+  Record what requires real-device confirmation and how absent artwork appears.
+  Start with [Add album art](https://docs.sonos.com/docs/add-album-art) and
+  [SMAPI object types](https://docs.sonos.com/docs/smapi-object-types).
+- Write an ADR for the public HTTPS image route, exact household/device-link
+  credential validation, canonical non-secret image identity and version,
+  allowed variants, cache isolation, TTL/client-cache policy, and safe failure
+  behavior. Define how Sonos URLs remain within the URI limit without putting
+  credentials, private server URLs, or raw user identifiers in them.
+- Add synthetic fixtures for album, track, missing image, changed tag, invalid
+  credentials, and non-square/large source images. Define bounded response and
+  content-type limits and the safe Jellyfin image endpoint shape.
+
+### [ ] Task 8A.2 — Authenticated image route and bounded Jellyfin fetch
+
+**Budget:** 3–4.5 hours. **Prerequisite:** accepted 8A.1 ADR.
+
+- Add the public `GET` route behind injected dependencies. Require the exact
+  Sonos device-link headers and household binding, validate the opaque image
+  identity and variant, and resolve the encrypted Jellyfin connection before
+  any image lookup or outbound request. Do not accept query credentials or
+  user-controlled origin URLs.
+- Fetch only an allow-listed Jellyfin image path over the existing HTTPS,
+  redirect, target, timeout, and bounded-read protections. Return only complete
+  `200` responses with a validated image content type and safe headers. Reject
+  oversized, truncated, malformed, redirected, missing, and wrong-type bodies
+  with credential-safe errors; never echo upstream data or private URLs.
+- Test binding mismatch, missing/invalid auth, path and variant validation,
+  upstream failures, redaction, and a successful uncached request. Keep the
+  route testable without Cloudflare deployment.
+
+### [ ] Task 8A.3 — Authorization-gated image cache
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 8A.2.
+
+- Use Cloudflare's Cache API on demand, only after request authentication and
+  connection resolution. Key entries by a non-secret connection scope, image
+  identity, Jellyfin image tag or equivalent version, and allow-listed variant.
+  A cache hit must not bypass household binding or connection authorization.
+  Follow the [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)
+  contract for the target deployment environment.
+- Cache only validated, complete `200` images. Store a clone with
+  `ctx.waitUntil`; return the other response privately so automatic Workers/CDN
+  caching cannot serve it before authorization. Set explicit positive edge TTL
+  and client-cache headers. Never cache authentication failures, redirects,
+  partial responses, malformed images, missing artwork, or upstream failures.
+- Test cold miss/store, warm hit without a Jellyfin call, version and variant
+  misses, connection isolation, authorization-before-hit ordering, concurrent
+  misses, TTL/headers, eviction fallback, and cache-write failure. Document
+  that Cache API entries are opportunistic and data-center-local.
+
+### [ ] Task 8A.4 — SMAPI artwork metadata and URL emission
+
+**Budget:** 3–4.5 hours. **Prerequisite:** 8A.3.
+
+- Expose safe Jellyfin image identity and version through the normalized data
+  layer. Emit the route's HTTPS URI with `requiresAuthentication="true"` for
+  supported album collections and track metadata in browse, search,
+  `getExtendedMetadata`, and `getMediaMetadata`. Preserve WSDL element order,
+  XML escaping, existing canonical IDs, and shared formatter consistency.
+- Omit artwork when no usable image exists; preserve the required empty album
+  collection `albumArtURI` if the Sonos contract still requires it. Avoid
+  per-item Jellyfin image fetches while constructing metadata pages.
+- Test URI length, stable canonical URLs, image-tag changes, missing images,
+  serialization order and escaping, and no credentials or private server data
+  in XML. Run `pnpm check` before marking the task complete.
+
+### [ ] Task 8A.5 — Real Sonos artwork compatibility
+
+**Budget:** 2–4 hours. **Prerequisites:** 8A.1–8A.4; working Sonos/Jellyfin
+hardware, album and track images, and access to safe request traces.
+
+- Confirm album-list and now-playing art on real Sonos clients, including
+  authenticated image headers, image substitution/size behavior, and graceful
+  handling of missing art. Verify that playback and browsing still work.
+- Exercise warm and cold image requests, a changed Jellyfin image tag, a
+  revoked/mismatched device link, and two isolated connections. Confirm no
+  credential or private server detail appears in URLs, logs, or errors.
+- Record device/firmware, Jellyfin version, tested image formats/sizes, cache
+  behavior, and outcomes without private identifiers. Fix bounded defects and
+  split larger compatibility failures. Mark Milestone 8A complete only after
+  the real-system cases and `pnpm check` pass.
+
 ## Milestone 9 — Activity tracking
 
 Milestone exit: connection-level activity is updated at most once per throttle
@@ -517,7 +619,7 @@ is ready to drive retention cleanup.
 
 ### [ ] Task 9.1 — Activity schema and guarded repository update
 
-**Budget:** 3–4.5 hours. **Prerequisite:** Milestone 8 code complete.
+**Budget:** 3–4.5 hours. **Prerequisite:** Milestone 8A complete.
 
 - Add a forward-only migration that gives `jellyfin_connections` a
   non-null `last_used_at`, initialized from `created_at` for existing records.
@@ -535,7 +637,8 @@ is ready to drive retention cleanup.
 - Classify `getMetadata`, `search`, `getMediaMetadata`, and `getMediaURI` as
   genuine activity after exact Sonos authentication succeeds.
 - Explicitly exclude `getLastUpdate`, onboarding/link methods, health checks,
-  background Jellyfin probes, malformed requests, and unauthorized requests.
+  artwork image GETs, background Jellyfin probes, malformed requests, and
+  unauthorized requests.
 - Ensure a throttled activity write does not leak data or turn a valid media
   response into an unsafe partial response. Document and test the chosen
   failure behavior.
@@ -661,7 +764,8 @@ complete; a representative staging Sonos/Jellyfin workload and access to its
 Cloudflare Worker metrics or traces. **Gate:** measurement and design only.
 
 - Record reproducible request mixes, sample sizes, p50/p95/p99 CPU and latency,
-  error rates, and invocation counts for all supported methods and onboarding.
+  error rates, and invocation counts for all supported methods, artwork GETs,
+  and onboarding.
   Capture only aggregate, credential-safe data. Profile CPU hot paths locally.
 - Write an ADR for the exact gateway/RPC boundary, versioned request/result and
   fault contracts, authentication placement, secret/D1 ownership, least-privilege
@@ -831,7 +935,8 @@ Cloudflare capability/account decision.
 - Audit every public route, Service Binding/RPC boundary, and outbound path for
   bounded reads, timeouts, redirect rejection, fixed paths, XML/HTML/header
   injection, query credentials, and allow-listed logging. Include
-  playback-derived URLs and headers.
+  playback-derived URLs and headers, plus the authenticated artwork route and
+  its cache authorization boundary.
 - Add table-driven/fuzz-style regression cases for hostile Unicode, IP and URL
   spellings, oversized values, malformed UTF-8/XML/forms/JSON, and secret
   canaries. Use constant-time comparison where plaintext secret comparison
@@ -890,12 +995,13 @@ credential-safe evidence.
 
 ### [ ] Task 12.4 — Requirements, compatibility, and troubleshooting
 
-**Budget:** 3–4.5 hours. **Prerequisites:** 8.5, 10.6, 11.6, and 12.2–12.3.
+**Budget:** 3–4.5 hours. **Prerequisites:** 8A.5, 10.6, 11.6, and 12.2–12.3.
 
 - Publish evidence-based Jellyfin version/server requirements and the verified
   Sonos/MP3/AAC/FLAC/transcoding matrix. Do not guess unsupported versions.
-- Document onboarding, auth, browsing, playback, D1/Cron, rate-limit, SSRF, and
-  secret-rotation troubleshooting with credential-safe diagnostics.
+- Document onboarding, auth, browsing, playback, artwork/cache behavior,
+  D1/Cron, rate-limit, SSRF, and secret-rotation troubleshooting with
+  credential-safe diagnostics.
 - Have a clean-context reviewer follow the docs through a fresh local setup and
   correct every reproducible omission. Run `pnpm check` and mark repository
   documentation complete.
@@ -908,8 +1014,8 @@ Sonos test registration, Jellyfin server, hardware, and media fixtures.
 
 - Provision or update staging in the documented order, apply migrations, deploy
   all Workers, wait for Cron propagation, and run onboarding, auth, every browse
-  branch, search, playback formats, activity throttling, and a safe accelerated
-  cleanup fixture.
+  branch, search, artwork, playback formats, activity throttling, and a safe
+  accelerated cleanup fixture.
 - Capture only non-secret outcomes and repair only bounded defects. Update the
   runbook from actual evidence and rerun release checks.
 
@@ -922,9 +1028,9 @@ explicit production authorization and all production identifiers/secrets.
   order, staged secrets, rollback checkpoints, and post-deploy smoke checks.
 - Do not paste secrets, raw identifiers, user data, or server responses into
   task output. Stop at any mismatch that would expand scope or risk data.
-- Confirm Cron, onboarding, authenticated browse/search/playback, monitoring,
-  and rollback readiness. Mark Milestone 12 and the Sonofin 2.0 roadmap complete
-  only after the production checks succeed.
+- Confirm Cron, onboarding, authenticated browse/search/artwork/playback,
+  monitoring, and rollback readiness. Mark Milestone 12 and the Sonofin 2.0
+  roadmap complete only after the production checks succeed.
 
 ## Explicitly unassigned backlog
 
@@ -936,8 +1042,6 @@ new bounded task before the affected gate:
 - `getExtendedMetadataText`
 - `reportAccountAction` and playback reporting
 - favorites and playlist mutation
-- authenticated artwork delivery (subject to the mandatory future-task
-  requirements below)
 - caching or scroll-index optimization
 - a separate internal encryption/credential Worker
 - custom signed playback URLs or Cloudflare audio proxying
@@ -950,42 +1054,3 @@ new bounded task before the affected gate:
   matching, stale-state expiry, asymmetric network reachability, TLS, and
   track-scoped short-lived playback credentials; it must never disclose the
   reusable Jellyfin access token to an unverified or plain-HTTP LAN endpoint.
-
-### Mandatory requirements for a future authenticated-artwork task
-
-When authenticated artwork delivery is promoted into a numbered task, that
-task must use Cloudflare's Cache API as an authorization-gated, on-demand edge
-cache rather than preloading a Jellyfin library or fetching every image on
-every Sonos request:
-
-- Add bounded HTTPS `GET` artwork routing and emit Sonos `albumArtURI` values
-  with `requiresAuthentication="true"` where supported. Authenticate the exact
-  Sonos household/device-link credentials and resolve their Jellyfin connection
-  before consulting the shared cache; a cache hit must never bypass household
-  binding or connection authorization.
-- Build one canonical internal cache key from a non-secret connection scope,
-  Jellyfin item/image identity, Jellyfin image tag or equivalent version, and
-  the allow-listed size/format variant. Do not place Sonos or Jellyfin
-  credentials, raw authorization headers, private server URLs, or user data in
-  the public artwork URI, cache key, errors, or logs. Keep emitted URIs within
-  Sonos limits and prevent collisions between different Jellyfin servers or
-  connections.
-- On a cache hit, return the cached complete image with a validated content
-  type and safe response headers. On a miss, make one bounded authenticated
-  Jellyfin image request using the existing redirect and target protections;
-  accept only a successful, allow-listed image response within the configured
-  byte limit, store a clone with `ctx.waitUntil`, and return the other response
-  to Sonos. Cache only complete `200` responses; do not cache authentication
-  failures, redirects, partial responses, malformed images, upstream failures,
-  or missing artwork.
-- Use versioned image keys so an artwork/tag change is an automatic cache miss
-  without a broad purge. Define and test an explicit positive edge TTL and
-  client-cache policy. Keep the response returned to Sonos private so automatic
-  Workers/CDN caching cannot serve it before Worker authorization; only the
-  post-authentication Cache API path may reuse the shared cached bytes.
-- Cover cold miss/store, warm hit without a Jellyfin call, version and variant
-  misses, connection isolation, authorization-before-hit ordering, concurrent
-  misses, TTL/header behavior, oversize and wrong-content rejection, safe
-  failure handling, and credential/identifier redaction. Document that Cache
-  API entries are opportunistic and data-center-local, so eviction or a request
-  reaching another Cloudflare location safely falls back to the same miss path.

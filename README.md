@@ -22,8 +22,8 @@ deterministic playback targets. The SMAPI Worker now returns a validated
 Jellyfin media URI and an Authorization header for direct player streaming.
 
 Task 7.9 real-system verification is in progress; Milestone 8 compatibility
-Task 8.5, Milestones 9–12, and the added Service Bindings Milestone 10A remain
-future work.
+Task 8.5, the new authenticated-artwork Milestone 8A, Milestones 9–12, and
+Service Bindings Milestone 10A remain future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Playback through the new media URI
@@ -219,7 +219,7 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
 - Album collections remain enumerable but non-playable because recursive
   flattening is not implemented. Track playback, skipping, seeking, favorites,
   and resume are explicitly disabled until Milestone 8 supplies playback.
-  Authenticated artwork delivery remains unassigned.
+  Authenticated artwork delivery is planned for Milestone 8A.
 
 ## What Task 7.4 adds
 
@@ -236,7 +236,7 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   album-artist metadata is emitted only when Sonos-safe; unavailable, multiline,
   or overlong optional values and unrelated overview or image data are omitted.
 - Global Albums and album-track browsing are added by Task 7.5; authenticated
-  artwork delivery remains unassigned.
+  artwork delivery is planned for Milestone 8A.
 
 ## What Task 7.3 adds
 
