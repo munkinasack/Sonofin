@@ -12,6 +12,13 @@
   decisions. Do not assume roadmap items in it are already implemented.
 - Use Node.js 22 or newer and pnpm 11 (`packageManager` pins pnpm 11.22.0).
 
+## Git workflow
+
+- Create a dedicated Git branch for each task before making changes.
+- Commit work to that branch at reasonable intervals.
+- When a task is complete, commit the final changes, push the branch, and merge
+  it into `main`.
+
 ## Architecture
 
 - `apps/smapi-worker`: Sonos-facing SOAP 1.1 endpoint at `POST /smapi`.
