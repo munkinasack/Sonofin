@@ -607,8 +607,14 @@ curl --request POST 'http://127.0.0.1:8788/onboarding' \
 The auth Worker validates the account, encrypts the usable Jellyfin token, stores
 the encrypted connection in D1, associates it with the temporary link, and then
 redirects to the completed page. It never persists the submitted password. A
-directly supplied access token is never revoked. Repeating the device-token
-request then returns HTTP 200 with a durable `SF_...` token and non-refresh
+directly supplied access token is never revoked.
+
+The completed page attempts to close its browser window so Sonos can regain
+focus. Browser rules may prevent this, so the page also tells the user to switch
+back to Sonos when it stays open.
+
+Repeating the device-token request then returns HTTP 200 with a durable `SF_...`
+token and non-refresh
 private-key value. Repeating that exact request before link expiry returns the
 same values. Changing the household, code, or device binding produces a terminal
 failure fault. After issuance, authenticated SOAP requests carry the returned

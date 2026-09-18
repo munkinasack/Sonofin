@@ -73,11 +73,12 @@ const CONSOLE_DIAGNOSTICS: OnboardingDiagnostics = {
   },
 };
 
-function securityHeaders(contentType: string): Headers {
+function securityHeaders(contentType: string, scriptNonce?: string): Headers {
   return new Headers({
     "cache-control": "no-store",
     "content-security-policy":
-      "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" +
+      (scriptNonce === undefined ? "" : `; script-src 'nonce-${scriptNonce}'`),
     "content-type": contentType,
     "permissions-policy":
       "accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -102,9 +103,13 @@ function textResponse(body: string, status: number, allow?: string): Response {
   return new Response(body, { headers, status });
 }
 
-function htmlResponse(body: string, status = 200): Response {
+function htmlResponse(
+  body: string,
+  status = 200,
+  scriptNonce?: string,
+): Response {
   return new Response(body, {
-    headers: securityHeaders("text/html; charset=utf-8"),
+    headers: securityHeaders("text/html; charset=utf-8", scriptNonce),
     status,
   });
 }
@@ -186,11 +191,18 @@ function pendingPage(
 }
 
 function completedPage(): Response {
+  const scriptNonce = btoa(
+    String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))),
+  );
   return htmlResponse(
     page(
       "Connection complete",
-      "<p>Your Jellyfin connection is stored securely. Return to the Sonos app to continue.</p>",
+      "<p>Your Jellyfin connection is stored securely. " +
+        "If this page stays open, switch back to the Sonos app to continue.</p>" +
+        `<script nonce="${scriptNonce}">window.close()</script>`,
     ),
+    200,
+    scriptNonce,
   );
 }
 

@@ -288,6 +288,32 @@ describe("onboarding Worker", () => {
     },
   );
 
+  it("tries to close only after a link is complete and keeps return instructions", async () => {
+    const completed = await handleRequest(
+      new Request("https://auth.example.test/onboarding?linkCode=test-code"),
+      createLinks("complete"),
+      createJellyfin(),
+    );
+    const completedBody = await completed.text();
+    const nonce = completedBody.match(/<script nonce="([^"]+)">window\.close\(\)<\/script>/)?.[1];
+
+    expect(nonce).toBeTruthy();
+    expect(completed.headers.get("content-security-policy")).toContain(
+      `script-src 'nonce-${nonce}'`,
+    );
+    expect(completedBody).toContain("switch back to the Sonos app");
+
+    const pending = await handleRequest(
+      new Request("https://auth.example.test/onboarding?linkCode=test-code"),
+      createLinks("pending"),
+      createJellyfin(),
+    );
+    expect(await pending.text()).not.toContain("window.close()");
+    expect(pending.headers.get("content-security-policy")).not.toContain(
+      "script-src",
+    );
+  });
+
   it("emits only allow-listed Jellyfin failure diagnostics", async () => {
     const links = createLinks();
     const jellyfin = createJellyfin();
