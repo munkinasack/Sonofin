@@ -82,7 +82,7 @@ describe("SonofinMediaMetadataService", () => {
         canAddToFavorites: false,
         canPlay: true,
         canResume: false,
-        canSeek: false,
+        canSeek: true,
         canSkip: false,
         duration: 125,
         trackNumber: 7,

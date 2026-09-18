@@ -55,7 +55,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
         canAddToFavorites: false,
         canPlay: true,
         canResume: false,
-        canSeek: false,
+        canSeek: true,
         canSkip: false,
         duration: 181,
         trackNumber: 7,
@@ -105,7 +105,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
         canAddToFavorites: false,
         canPlay: true,
         canResume: false,
-        canSeek: false,
+        canSeek: true,
         canSkip: false,
       },
     });
@@ -136,7 +136,7 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
       canAddToFavorites: false,
       canPlay: true,
       canResume: false,
-      canSeek: false,
+      canSeek: true,
       canSkip: false,
     });
   });

@@ -144,7 +144,7 @@ describe("SonofinSearchService", () => {
             canAddToFavorites: false,
             canPlay: true,
             canResume: false,
-            canSeek: false,
+            canSeek: true,
             canSkip: false,
             duration: 181,
             trackNumber: 4,

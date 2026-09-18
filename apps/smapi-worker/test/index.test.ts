@@ -714,7 +714,7 @@ describe("SMAPI Worker", () => {
               canAddToFavorites: false,
               canPlay: true,
               canResume: false,
-              canSeek: false,
+              canSeek: true,
               canSkip: false,
             },
           },
@@ -742,7 +742,7 @@ describe("SMAPI Worker", () => {
         "<mimeType>audio/flac</mimeType><trackMetadata>" +
         "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
-        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "<canResume>false</canResume><canSeek>true</canSeek>" +
         "</trackMetadata></mediaMetadata></searchResult></searchResponse>",
     );
     expect(search).toHaveBeenCalledOnce();
@@ -1182,7 +1182,7 @@ describe("SMAPI Worker", () => {
         "<album>Álbum &lt;一&gt;</album><duration>123</duration>" +
         "<trackNumber>4</trackNumber><canPlay>true</canPlay>" +
         "<canSkip>false</canSkip><canAddToFavorites>false</canAddToFavorites>" +
-        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "<canResume>false</canResume><canSeek>true</canSeek>" +
         "</trackMetadata></mediaMetadata></getMetadataResult>",
     );
     expect(tracksBody).not.toContain("discNumber");
@@ -1293,21 +1293,21 @@ describe("SMAPI Worker", () => {
         "<mimeType>audio/mpeg</mimeType><trackMetadata>" +
         "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
-        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "<canResume>false</canResume><canSeek>true</canSeek>" +
         "</trackMetadata></mediaMetadata>" +
         `<mediaMetadata><id>${encodedDuplicateTrackId}</id>` +
         "<itemType>track</itemType><title>Repeated &lt;Track&gt;</title>" +
         "<mimeType>audio/mpeg</mimeType><trackMetadata>" +
         "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
-        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "<canResume>false</canResume><canSeek>true</canSeek>" +
         "</trackMetadata></mediaMetadata>" +
         `<mediaMetadata><id>${encodedCollisionTrackId}</id>` +
         "<itemType>track</itemType><title>Collision Canary</title>" +
         "<mimeType>audio/flac</mimeType><trackMetadata>" +
         "<canPlay>true</canPlay><canSkip>false</canSkip>" +
         "<canAddToFavorites>false</canAddToFavorites>" +
-        "<canResume>false</canResume><canSeek>false</canSeek>" +
+        "<canResume>false</canResume><canSeek>true</canSeek>" +
         "</trackMetadata></mediaMetadata></getMetadataResult>",
     );
     expect(tracksBody.split(encodedDuplicateTrackId)).toHaveLength(3);

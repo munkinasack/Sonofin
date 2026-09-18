@@ -213,7 +213,7 @@ export function formatJellyfinTrackAsSonosBrowseTrack(
     canAddToFavorites: false,
     canPlay: true,
     canResume: false,
-    canSeek: false,
+    canSeek: true,
     canSkip: false,
   });
 
