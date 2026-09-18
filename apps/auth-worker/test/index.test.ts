@@ -160,11 +160,111 @@ describe("onboarding Worker", () => {
     expect(body).toContain('name="username"');
     expect(body).toContain('name="password" type="password"');
     expect(body).toContain('name="accessToken" type="password"');
+    expect(body).toContain('role="tablist" aria-label="Sign-in method"');
+    expect(body).toContain('role="tab" aria-controls="passwordPanel"');
+    expect(body).toContain('role="tab" aria-controls="tokenPanel"');
+    expect(body).toContain('data-initial-mode="password"');
+    expect(body).toContain('id="passwordPanel" role="tabpanel"');
+    expect(body).toContain('id="tokenPanel" role="tabpanel"');
     expect(body).toContain("Connect Jellyfin");
     expect(body).not.toContain("Connect test account");
     expect(body).not.toContain("does not ask for a server");
     expect(links.getOnboardingState).toHaveBeenCalledWith("test-code");
     expectNoJellyfinContact(jellyfin);
+  });
+
+  it("switches credential tabs and disables the inactive inputs", async () => {
+    const response = await handleRequest(
+      new Request("https://auth.example.test/onboarding?linkCode=test-code"),
+      createLinks(),
+      createJellyfin(),
+    );
+    const body = await response.text();
+    const script = body.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeDefined();
+
+    interface FakeElement {
+      hidden: boolean;
+      disabled: boolean;
+      tabIndex: number;
+      dataset: { initialMode?: string };
+      attributes: Map<string, string>;
+      listeners: Map<string, (event: { key: string; preventDefault(): void }) => void>;
+      addEventListener(
+        type: string,
+        listener: (event: { key: string; preventDefault(): void }) => void,
+      ): void;
+      setAttribute(name: string, value: string): void;
+      focus(): void;
+    }
+
+    const elements = new Map<string, FakeElement>();
+    let focused: FakeElement | undefined;
+    for (const id of [
+      "credentialTabs",
+      "passwordTab",
+      "tokenTab",
+      "passwordPanel",
+      "tokenPanel",
+      "username",
+      "password",
+      "accessToken",
+    ]) {
+      const current: FakeElement = {
+        hidden: id === "credentialTabs",
+        disabled: false,
+        tabIndex: 0,
+        dataset: id === "credentialTabs" ? { initialMode: "password" } : {},
+        attributes: new Map(),
+        listeners: new Map(),
+        addEventListener(type, listener) {
+          this.listeners.set(type, listener);
+        },
+        setAttribute(name, value) {
+          this.attributes.set(name, value);
+        },
+        focus() {
+          focused = current;
+        },
+      };
+      elements.set(id, current);
+    }
+
+    function element(id: string): FakeElement {
+      const result = elements.get(id);
+      if (result === undefined) throw new Error(`Missing ${id}`);
+      return result;
+    }
+
+    const document = {
+      getElementById: (id: string) => elements.get(id) ?? null,
+      get activeElement(): FakeElement | undefined {
+        return focused;
+      },
+    };
+    new Function("document", script ?? "")(document);
+
+    expect(element("credentialTabs").hidden).toBe(false);
+    expect(element("passwordPanel").hidden).toBe(false);
+    expect(element("tokenPanel").hidden).toBe(true);
+    expect(element("accessToken").disabled).toBe(true);
+
+    const clickToken = element("tokenTab").listeners.get("click");
+    expect(clickToken).toBeDefined();
+    clickToken?.({ key: "", preventDefault() {} });
+    expect(element("passwordPanel").hidden).toBe(true);
+    expect(element("tokenPanel").hidden).toBe(false);
+    expect(element("username").disabled).toBe(true);
+    expect(element("password").disabled).toBe(true);
+    expect(element("accessToken").disabled).toBe(false);
+    expect(element("tokenTab").attributes.get("aria-selected")).toBe("true");
+
+    const keydown = element("credentialTabs").listeners.get("keydown");
+    expect(keydown).toBeDefined();
+    keydown?.({ key: "Home", preventDefault() {} });
+    expect(focused).toBe(element("passwordTab"));
+    expect(element("password").disabled).toBe(false);
+    expect(element("accessToken").disabled).toBe(true);
   });
 
   it("escapes untrusted link codes and retained public form values", async () => {
@@ -308,9 +408,16 @@ describe("onboarding Worker", () => {
       createLinks("pending"),
       createJellyfin(),
     );
-    expect(await pending.text()).not.toContain("window.close()");
-    expect(pending.headers.get("content-security-policy")).not.toContain(
-      "script-src",
+    const pendingBody = await pending.text();
+    const pendingNonce = pendingBody.match(/<script nonce="([^"]+)">/)?.[1];
+    expect(pendingBody).not.toContain("window.close()");
+    expect(pendingNonce).toBeTruthy();
+    expect(pendingBody).toContain(`<style nonce="${pendingNonce}">`);
+    expect(pending.headers.get("content-security-policy")).toContain(
+      `script-src 'nonce-${pendingNonce}'`,
+    );
+    expect(pending.headers.get("content-security-policy")).toContain(
+      `style-src 'nonce-${pendingNonce}'`,
     );
   });
 
@@ -695,6 +802,7 @@ describe("onboarding Worker", () => {
 
       expect(response.status).toBe(status);
       expect(body).toContain(message);
+      expect(body).toContain(`data-initial-mode="${mode}"`);
       expect(body).not.toContain(PASSWORD);
       expect(body).not.toContain(DIRECT_TOKEN);
       expect(body).not.toContain(RETURNED_TOKEN);

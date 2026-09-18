@@ -73,12 +73,14 @@ const CONSOLE_DIAGNOSTICS: OnboardingDiagnostics = {
   },
 };
 
-function securityHeaders(contentType: string, scriptNonce?: string): Headers {
+function securityHeaders(contentType: string, pageNonce?: string): Headers {
   return new Headers({
     "cache-control": "no-store",
     "content-security-policy":
       "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" +
-      (scriptNonce === undefined ? "" : `; script-src 'nonce-${scriptNonce}'`),
+      (pageNonce === undefined
+        ? ""
+        : `; script-src 'nonce-${pageNonce}'; style-src 'nonce-${pageNonce}'`),
     "content-type": contentType,
     "permissions-policy":
       "accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -106,10 +108,10 @@ function textResponse(body: string, status: number, allow?: string): Response {
 function htmlResponse(
   body: string,
   status = 200,
-  scriptNonce?: string,
+  pageNonce?: string,
 ): Response {
   return new Response(body, {
-    headers: securityHeaders("text/html; charset=utf-8", scriptNonce),
+    headers: securityHeaders("text/html; charset=utf-8", pageNonce),
     status,
   });
 }
@@ -130,20 +132,75 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function page(title: string, content: string): string {
+function page(title: string, content: string, head = ""): string {
   return (
     "<!doctype html>" +
     '<html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    `<title>${escapeHtml(title)} · Sonofin 2.0</title></head>` +
+    `<title>${escapeHtml(title)} · Sonofin 2.0</title>${head}</head>` +
     `<body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`
   );
 }
 
 interface PendingPageValues {
+  mode?: "password" | "token";
   serverUrl?: string;
   username?: string;
 }
+
+function createPageNonce(): string {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+}
+
+const CREDENTIAL_TAB_STYLE = `
+[hidden] { display: none !important; }
+#credentialTabs { display: flex; gap: 0.5rem; border-bottom: 1px solid #777; margin-top: 1rem; }
+#credentialTabs [role="tab"] { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: 0.6rem 0.8rem; cursor: pointer; }
+#credentialTabs [aria-selected="true"] { border-bottom-color: currentColor; font-weight: bold; }
+#credentialTabs [role="tab"]:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+`;
+
+const CREDENTIAL_TAB_SCRIPT = `
+(() => {
+  const tabs = document.getElementById("credentialTabs");
+  const passwordTab = document.getElementById("passwordTab");
+  const tokenTab = document.getElementById("tokenTab");
+  const passwordPanel = document.getElementById("passwordPanel");
+  const tokenPanel = document.getElementById("tokenPanel");
+  const username = document.getElementById("username");
+  const password = document.getElementById("password");
+  const accessToken = document.getElementById("accessToken");
+
+  function activate(mode, focus) {
+    const usePassword = mode === "password";
+    passwordTab.setAttribute("aria-selected", String(usePassword));
+    tokenTab.setAttribute("aria-selected", String(!usePassword));
+    passwordTab.tabIndex = usePassword ? 0 : -1;
+    tokenTab.tabIndex = usePassword ? -1 : 0;
+    passwordPanel.hidden = !usePassword;
+    tokenPanel.hidden = usePassword;
+    username.disabled = !usePassword;
+    password.disabled = !usePassword;
+    accessToken.disabled = usePassword;
+    if (focus) (usePassword ? passwordTab : tokenTab).focus();
+  }
+
+  passwordTab.addEventListener("click", () => activate("password", false));
+  tokenTab.addEventListener("click", () => activate("token", false));
+  tabs.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      activate(document.activeElement === passwordTab ? "token" : "password", true);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      activate(event.key === "Home" ? "password" : "token", true);
+    }
+  });
+
+  tabs.hidden = false;
+  activate(tabs.dataset.initialMode === "token" ? "token" : "password", false);
+})();
+`;
 
 function pendingPage(
   linkCode: string,
@@ -153,12 +210,14 @@ function pendingPage(
     values?: PendingPageValues;
   } = {},
 ): Response {
+  const pageNonce = createPageNonce();
   const error =
     options.error === undefined
       ? ""
       : `<p role="alert">${escapeHtml(options.error)}</p>`;
   const serverUrl = escapeHtml(options.values?.serverUrl ?? "");
   const username = escapeHtml(options.values?.username ?? "");
+  const initialMode = options.values?.mode === "token" ? "token" : "password";
 
   return htmlResponse(
     page(
@@ -173,27 +232,31 @@ function pendingPage(
         `<input id="serverUrl" name="serverUrl" type="url" maxlength="2048" ` +
         `autocomplete="url" required value="${serverUrl}" ` +
         'placeholder="https://jellyfin.example.com"></p>' +
-        '<fieldset><legend>Sign in with a Jellyfin account</legend>' +
+        `<div id="credentialTabs" role="tablist" aria-label="Sign-in method" data-initial-mode="${initialMode}" hidden>` +
+        `<button id="passwordTab" type="button" role="tab" aria-controls="passwordPanel" aria-selected="${initialMode === "password"}" tabindex="${initialMode === "password" ? 0 : -1}">Username and password</button>` +
+        `<button id="tokenTab" type="button" role="tab" aria-controls="tokenPanel" aria-selected="${initialMode === "token"}" tabindex="${initialMode === "token" ? 0 : -1}">API token</button></div>` +
+        '<section id="passwordPanel" role="tabpanel" aria-labelledby="passwordTab"><fieldset><legend>Username and password</legend>' +
         '<p><label for="username">Username</label><br>' +
         `<input id="username" name="username" maxlength="255" ` +
         `autocomplete="username" value="${username}"></p>` +
         '<p><label for="password">Password</label><br>' +
         '<input id="password" name="password" type="password" maxlength="2048" ' +
-        'autocomplete="current-password"></p></fieldset>' +
-        '<p><strong>Or</strong></p>' +
+        'autocomplete="current-password"></p></fieldset></section>' +
+        '<section id="tokenPanel" role="tabpanel" aria-labelledby="tokenTab"><fieldset><legend>API token</legend>' +
         '<p><label for="accessToken">Existing Jellyfin access token</label><br>' +
         '<input id="accessToken" name="accessToken" type="password" maxlength="4096" ' +
-        'autocomplete="off"></p>' +
-        '<button type="submit">Connect Jellyfin</button></form>',
+        'autocomplete="off"></p></fieldset></section>' +
+        '<button type="submit">Connect Jellyfin</button></form>' +
+        `<script nonce="${pageNonce}">${CREDENTIAL_TAB_SCRIPT}</script>`,
+      `<style nonce="${pageNonce}">${CREDENTIAL_TAB_STYLE}</style>`,
     ),
     options.status,
+    pageNonce,
   );
 }
 
 function completedPage(): Response {
-  const scriptNonce = btoa(
-    String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))),
-  );
+  const scriptNonce = createPageNonce();
   return htmlResponse(
     page(
       "Connection complete",
@@ -299,6 +362,7 @@ function authenticationErrorResponse(
       return pendingPage(linkCode, {
         error: error.message,
         status: 400,
+        values: { mode: values.mode ?? "password" },
       });
     case "authentication_failed":
     case "token_invalid":
@@ -338,7 +402,8 @@ async function authenticateConnection(
   form.delete("password");
   form.delete("accessToken");
 
-  const publicValues = {
+  const publicValues: PendingPageValues = {
+    mode: accessToken === "" ? "password" : "token",
     serverUrl: submission.serverUrl,
     username: submission.username,
   };
