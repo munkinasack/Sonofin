@@ -2276,10 +2276,12 @@ describe("SMAPI Worker", () => {
           makeSoapRequest("getLastUpdate"),
           {
             DB: {} as D1Database,
-            JELLYFIN_TOKEN_ENCRYPTION_KEY:
-              invalidKey === "encryption"
-                ? secretCanary
-                : "A".repeat(43),
+            JELLYFIN_TOKEN_ENCRYPTION_KEY: {
+              get: async () =>
+                invalidKey === "encryption"
+                  ? secretCanary
+                  : "A".repeat(43),
+            }
             ONBOARDING_URL: "https://auth.example.test/onboarding",
             SONOS_TOKEN_SIGNING_KEY:
               invalidKey === "signing"
