@@ -8,6 +8,13 @@
   "vars": {
     "LINK_CODE_TTL_SECONDS": "600"
   },
+  "secrets_store_secrets": [
+    {
+      "binding": "JELLYFIN_TOKEN_ENCRYPTION_KEY",
+      "store_id": "f3ae0e25658946e9bd40dd4693f45341",
+      "secret_name": "Sonofin"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
