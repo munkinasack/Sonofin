@@ -27,7 +27,7 @@ const FORM_BODY_LIMIT_BYTES = 8 * 1024;
 
 interface Env {
   DB: D1Database;
-  JELLYFIN_TOKEN_ENCRYPTION_KEY: string;
+  JELLYFIN_TOKEN_ENCRYPTION_KEY: SecretsStoreSecret;
   ALLOW_INSECURE_JELLYFIN_HTTP?: string;
 }
 
@@ -656,8 +656,10 @@ export default {
     const jellyfin = new JellyfinAuthenticationClient({
       allowInsecureHttp: env.ALLOW_INSECURE_JELLYFIN_HTTP === "true",
     });
-    const connections = new JellyfinConnectionService({
-      cipher: new AesGcmTokenCipher(env.JELLYFIN_TOKEN_ENCRYPTION_KEY),
+const connections = new JellyfinConnectionService({
+  cipher: new AesGcmTokenCipher(
+    await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get()
+      ),
       now: () => Math.floor(Date.now() / 1000),
       repository: new D1JellyfinConnectionRepository(env.DB),
     });
