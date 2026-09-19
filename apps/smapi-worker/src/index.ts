@@ -1339,15 +1339,18 @@ function configurationFailureResponse(startedAt: number): Response {
 }
 
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const startedAt = Date.now();
     let dependencies: SmapiDependencies;
+
     try {
       const now = () => Math.floor(Date.now() / 1000);
+
       const links = new LinkService({
         now,
         repository: new D1LinkRepository(env.DB),
       });
+
       const jellyfinConnections = new JellyfinConnectionService({
         cipher: new AesGcmTokenCipher(
           await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get(),
@@ -1355,6 +1358,7 @@ export default {
         now,
         repository: new D1JellyfinConnectionRepository(env.DB),
       });
+
       const sonosAuthentication = new SonosAuthenticationService({
         now,
         fallbackSigningKeys:
