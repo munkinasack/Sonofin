@@ -143,7 +143,7 @@ type SupportedMethod =
 interface Env {
   ALLOW_INSECURE_JELLYFIN_HTTP?: string;
   DB: D1Database;
-  JELLYFIN_TOKEN_ENCRYPTION_KEY: string;
+  JELLYFIN_TOKEN_ENCRYPTION_KEY: SecretsStoreSecret;
   LINK_CODE_TTL_SECONDS?: string;
   ONBOARDING_URL?: string;
   SONOS_TOKEN_FALLBACK_SIGNING_KEYS?: string;
@@ -1350,7 +1350,7 @@ export default {
       });
       const jellyfinConnections = new JellyfinConnectionService({
         cipher: new AesGcmTokenCipher(
-          env.JELLYFIN_TOKEN_ENCRYPTION_KEY,
+          await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get(),
         ),
         now,
         repository: new D1JellyfinConnectionRepository(env.DB),
