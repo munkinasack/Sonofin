@@ -648,21 +648,24 @@ export async function handleRequest(
 }
 
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const links = new LinkService({
       now: () => Math.floor(Date.now() / 1000),
       repository: new D1LinkRepository(env.DB),
     });
+
     const jellyfin = new JellyfinAuthenticationClient({
       allowInsecureHttp: env.ALLOW_INSECURE_JELLYFIN_HTTP === "true",
     });
-const connections = new JellyfinConnectionService({
-  cipher: new AesGcmTokenCipher(
-    await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get()
+
+    const connections = new JellyfinConnectionService({
+      cipher: new AesGcmTokenCipher(
+        await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get(),
       ),
       now: () => Math.floor(Date.now() / 1000),
       repository: new D1JellyfinConnectionRepository(env.DB),
     });
+
     return handleRequest(
       request,
       links,
