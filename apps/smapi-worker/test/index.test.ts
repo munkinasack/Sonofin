@@ -2272,16 +2272,20 @@ describe("SMAPI Worker", () => {
         .mockImplementation(() => undefined);
 
       try {
+        const jellyfinTokenEncryptionKey = {
+          get: () =>
+            Promise.resolve(
+              invalidKey === "encryption"
+                ? secretCanary
+                : "A".repeat(43),
+            ),
+        };
+
         const response = await smapiWorker.fetch(
           makeSoapRequest("getLastUpdate"),
           {
             DB: {} as D1Database,
-            JELLYFIN_TOKEN_ENCRYPTION_KEY: {
-              get: async () =>
-                invalidKey === "encryption"
-                  ? secretCanary
-                  : "A".repeat(43),
-            }
+            JELLYFIN_TOKEN_ENCRYPTION_KEY: jellyfinTokenEncryptionKey,
             ONBOARDING_URL: "https://auth.example.test/onboarding",
             SONOS_TOKEN_SIGNING_KEY:
               invalidKey === "signing"
