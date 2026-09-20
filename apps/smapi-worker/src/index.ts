@@ -468,6 +468,10 @@ function itemNotFoundDiagnostics(
 function classifyInternalErrorOrigin(
   error: unknown,
 ): SmapiInternalErrorOrigin {
+  if (error instanceof JellyfinPlaybackTargetError) {
+    return "playback_no_compatible_stream";
+  }
+
   if (error instanceof SmapiResponseSerializationError) {
     return "serialization";
   }

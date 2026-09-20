@@ -38,6 +38,7 @@ export type SmapiInternalErrorOrigin =
   | "jellyfin_response_body"
   | "jellyfin_response_too_large"
   | "jellyfin_response"
+  | "playback_no_compatible_stream"
   | "serialization"
   | "track_container_ambiguous"
   | "track_container_missing"

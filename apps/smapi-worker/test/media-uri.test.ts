@@ -312,6 +312,7 @@ describe("getMediaURI Worker integration", () => {
   });
 
   it("returns a fixed fault when Jellyfin has no compatible source", async () => {
+    const logSink = sink();
     const response = await handleRequest(
       soapRequest(),
       dependencies(dataClient({
@@ -323,15 +324,26 @@ describe("getMediaURI Worker integration", () => {
           container: "mp3",
         }),
         getPlaybackInfo: vi.fn().mockResolvedValue({ mediaSources: [] }),
-      })),
+      }), { logSink }),
     );
     const body = await response.text();
+    const logs = loggedText(logSink);
 
     expect(response.status).toBe(500);
     expect(body).toContain("<faultcode>Server.ServiceUnknownError</faultcode>");
     expect(body).toContain("No compatible audio stream is available");
+    expect(JSON.parse(vi.mocked(logSink.error).mock.calls[0]?.[0] ?? "{}")).toMatchObject({
+      contentKind: "track",
+      internalErrorOrigin: "playback_no_compatible_stream",
+      reason: "internal_error",
+      soapMethod: "getMediaURI",
+    });
     expect(body).not.toContain(TRACK_ID);
     expect(body).not.toContain(ACCESS_TOKEN);
+    expect(logs).not.toContain(TRACK_ID);
+    expect(logs).not.toContain(ENCODED_TRACK_ID);
+    expect(logs).not.toContain(ACCESS_TOKEN);
+    expect(logs).not.toContain("private-sonos-token");
   });
 
   it.each([
