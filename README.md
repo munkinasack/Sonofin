@@ -278,9 +278,10 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
 - Connection resolution and data-client creation are injected seams. Production
   retrieves the mapped D1 record, decrypts it with `AesGcmTokenCipher`, and
   constructs `JellyfinApiClient`; unit tests continue to use local fakes.
-- The auth and SMAPI Workers use the same environment-specific
-  `JELLYFIN_TOKEN_ENCRYPTION_KEY`. `SONOS_TOKEN_SIGNING_KEY` remains a distinct
-  SMAPI-only HMAC key with its existing staged fallback-key procedure.
+- The auth and SMAPI Workers read the same environment-specific Secrets Store
+  entry through their `JELLYFIN_TOKEN_ENCRYPTION_KEY` bindings.
+  `SONOS_TOKEN_SIGNING_KEY` remains a distinct SMAPI-only Worker Secret with its
+  existing staged fallback-key procedure.
 - Connection-integrity, client-construction, and typed Jellyfin failures map to
   fixed credential-safe SOAP faults. Invalid Sonos credentials still return
   `Client.LoginUnauthorized`; an invalid Jellyfin token returns
@@ -369,8 +370,9 @@ deferred.
   logging.
 - `@sonofin/crypto` encrypts Jellyfin access tokens with AES-256-GCM, a fresh
   96-bit nonce, and authenticated data bound to the connection and its critical
-  server/user metadata. The key is a single 32-byte, base64url-encoded Worker
-  Secret named `JELLYFIN_TOKEN_ENCRYPTION_KEY`.
+  server/user metadata. The key is a single 32-byte, base64url-encoded Secrets
+  Store value named `Sonofin`, bound as `JELLYFIN_TOKEN_ENCRYPTION_KEY` in both
+  Workers.
 - `@sonofin/connections` creates independent 192-bit connection IDs, persists
   only authenticated ciphertext plus normalized Jellyfin server, user, and
   device metadata, and can retrieve and decrypt a connection after service
@@ -433,7 +435,7 @@ apps/
   smapi-worker/       public Sonos SOAP endpoint
 packages/
   connections/        encrypted Jellyfin connection lifecycle and contracts
-  crypto/             AES-GCM token encryption using a Worker Secret
+  crypto/             AES-GCM token encryption using a Secrets Store key
   database/           D1 repository and forward-only SQL migrations
   jellyfin-client/    bounded Jellyfin authentication and normalized data client
   linking/            cryptographic link lifecycle and state machine
@@ -492,39 +494,31 @@ hash-only Sonos-to-Jellyfin associations without rewriting existing links.
 
 ## Run the two Workers locally
 
-Start each command in its own terminal:
-
-```bash
-pnpm dev:auth
-```
-
-```bash
-pnpm dev:smapi
-```
-
-The default endpoints are:
-
-```text
-http://127.0.0.1:8787/smapi
-http://127.0.0.1:8788/onboarding
-```
-
 The link lifetime and onboarding base URL are non-secret Wrangler variables.
-Both Workers require the same Jellyfin encryption secret: onboarding encrypts
-connections and SMAPI decrypts them. The SMAPI Worker additionally requires a
-different Sonos token-derivation secret. Copy both local examples before
-starting the Workers:
+Both Workers read the same local Secrets Store entry: onboarding encrypts
+connections and SMAPI decrypts them. The SMAPI Worker also needs a different
+Sonos token-derivation secret. Copy the local variable examples, then create
+the local `Sonofin` entry once in the shared persistence directory:
 
 ```bash
 cp apps/auth-worker/.dev.vars.example apps/auth-worker/.dev.vars
 cp apps/smapi-worker/.dev.vars.example apps/smapi-worker/.dev.vars
+pnpm exec wrangler secrets-store secret create \
+  f3ae0e25658946e9bd40dd4693f45341 \
+  --name Sonofin --scopes workers --persist-to .wrangler/state
 ```
 
-The checked-in `JELLYFIN_TOKEN_ENCRYPTION_KEY` and `SONOS_TOKEN_SIGNING_KEY`
-values are intentionally public, local-only fixtures. The AES fixture is the
-same in both examples, while the HMAC fixture is visibly different. For a real
-environment, generate one 32-byte unpadded-base64url AES value and configure
-that exact value on both Workers; generate a separate value for Sonos signing.
+At the local Secrets Store prompt, enter the public, local-only AES fixture
+`AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`, or the original local AES key
+if the local D1 database already contains encrypted connections. The
+`SONOS_TOKEN_SIGNING_KEY` in `.dev.vars.example` is a separate public fixture.
+Remove any old `JELLYFIN_TOKEN_ENCRYPTION_KEY` line from an existing
+`.dev.vars`; that name is now a Secrets Store binding. Local Secrets Store
+values do not read or change the production entry.
+
+Start each Worker in its own terminal with `pnpm dev:auth` and
+`pnpm dev:smapi`. The default endpoints are
+`http://127.0.0.1:8788/onboarding` and `http://127.0.0.1:8787/smapi`.
 
 The Jellyfin encryption layer currently has no key identifier, fallback
 keyring, or re-encryption path. Losing or changing its key makes existing
@@ -635,26 +629,38 @@ pnpm exec wrangler d1 execute sonofin \
 
 ## Deploy
 
-Generate and securely retain two different environment-specific keys by running
-this command twice. Use one value as the shared Jellyfin AES key on both
-Workers, and the other as the SMAPI-only Sonos HMAC key:
+Both Workers are configured to read the `Sonofin` secret from the same Cloudflare
+Secrets Store (`f3ae0e25658946e9bd40dd4693f45341`). Keep the existing entry
+and its value for a deployment with encrypted Jellyfin connections. Changing
+that AES key makes those connections unreadable; neither Worker needs a
+per-Worker `JELLYFIN_TOKEN_ENCRYPTION_KEY` secret.
+
+For a new environment only, generate and securely retain two distinct 32-byte
+unpadded-base64url values by running this command twice:
 
 ```bash
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 ```
 
-Apply migrations remotely, store each generated value in its owning Worker, and
-then deploy both Workers:
+Create the `Sonofin` Secrets Store entry with the AES value at the secure prompt,
+and create the SMAPI-only Sonos Worker Secret with the other value. The store ID
+must match the binding in both Wrangler configurations. If moving an existing
+deployment from per-Worker secrets, enter its original retained AES value, not
+a new one:
+
+```bash
+pnpm exec wrangler secrets-store secret create \
+  f3ae0e25658946e9bd40dd4693f45341 \
+  --name Sonofin --scopes workers --remote
+pnpm exec wrangler secret put SONOS_TOKEN_SIGNING_KEY \
+  --config apps/smapi-worker/wrangler.jsonc
+```
+
+For deployments, apply migrations remotely and deploy both Workers:
 
 ```bash
 pnpm exec wrangler d1 migrations apply sonofin \
   --remote \
-  --config apps/smapi-worker/wrangler.jsonc
-pnpm exec wrangler secret put JELLYFIN_TOKEN_ENCRYPTION_KEY \
-  --config apps/auth-worker/wrangler.jsonc
-pnpm exec wrangler secret put JELLYFIN_TOKEN_ENCRYPTION_KEY \
-  --config apps/smapi-worker/wrangler.jsonc
-pnpm exec wrangler secret put SONOS_TOKEN_SIGNING_KEY \
   --config apps/smapi-worker/wrangler.jsonc
 pnpm --filter @sonofin/auth-worker deploy
 pnpm --filter @sonofin/smapi-worker deploy
@@ -662,12 +668,11 @@ pnpm --filter @sonofin/smapi-worker deploy
 
 Set `ONBOARDING_URL` in the SMAPI Wrangler configuration to the deployed HTTPS
 `sonofin-auth` URL before deployment. Do not use the local fixture database ID
-in production. Enter the exact same freshly generated AES value at both
-`JELLYFIN_TOKEN_ENCRYPTION_KEY` prompts, then enter a distinct freshly generated
-HMAC value for `SONOS_TOKEN_SIGNING_KEY`. All values must be 32-byte unpadded
-base64url. Do not reuse either local fixture, reuse one key across the AES and
-HMAC domains, put the values in Wrangler `vars`, or commit them. Do not rotate
-the AES key until a supported re-encryption or relinking procedure is in place.
+in production. Do not reuse either local fixture, reuse one key across the AES
+and HMAC domains, put the values in Wrangler `vars`, or commit them. Do not
+rotate the AES key until a supported re-encryption or relinking procedure is in
+place. A Secrets Store metadata listing cannot verify the saved value; check
+that an existing connection still decrypts before relying on a migration.
 If rotating the Sonos key, temporarily store the staged keyring in the
 `SONOS_TOKEN_FALLBACK_SIGNING_KEYS` secret as described above. Keep
 `ALLOW_INSECURE_JELLYFIN_HTTP` unset in production and connect only to HTTPS

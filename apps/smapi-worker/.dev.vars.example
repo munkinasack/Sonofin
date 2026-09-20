@@ -1,11 +1,8 @@
 ONBOARDING_URL=http://127.0.0.1:8788/onboarding
 LINK_CODE_TTL_SECONDS=600
 
-# This must exactly match the auth Worker's local encryption key so the SMAPI
-# Worker can decrypt the connections that onboarding stores. Never deploy this
-# public fixture; store the shared environment value as a secret on both
-# Workers.
-JELLYFIN_TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+# Configure the shared local Sonofin Secrets Store entry as described in
+# README.md. JELLYFIN_TOKEN_ENCRYPTION_KEY is a Secrets Store binding.
 
 # Local-only 32-byte HMAC key encoded as unpadded base64url. Generate a
 # value distinct from JELLYFIN_TOKEN_ENCRYPTION_KEY for production and store it

@@ -8,6 +8,7 @@ import {
 } from "@sonofin/jellyfin-client";
 
 import {
+  default as onboardingWorker,
   handleRequest as handleOnboardingRequest,
   type OnboardingConnectionStorage,
   type OnboardingDiagnostics,
@@ -137,6 +138,32 @@ function storedCompletion(links: OnboardingLinkService): {
 }
 
 describe("onboarding Worker", () => {
+  it.each(["read failure", "invalid value"] as const)(
+    "returns a safe response for a Secrets Store %s",
+    async (failure) => {
+      const secretCanary = "secret-store-error-must-never-leak";
+      const response = await onboardingWorker.fetch(
+        new Request("https://auth.example.test/onboarding"),
+        {
+          DB: {} as D1Database,
+          JELLYFIN_TOKEN_ENCRYPTION_KEY: {
+            get: () =>
+              failure === "read failure"
+                ? Promise.reject(new Error(secretCanary))
+                : Promise.resolve(secretCanary),
+          },
+        },
+      );
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-request-id")).toBeTruthy();
+      expect(body).toBe("The onboarding service could not process the request");
+      expect(body).not.toContain(secretCanary);
+    },
+  );
+
   it("shows the Jellyfin connection form for a pending link", async () => {
     const links = createLinks();
     const jellyfin = createJellyfin();

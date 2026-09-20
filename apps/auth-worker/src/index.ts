@@ -649,29 +649,36 @@ export async function handleRequest(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const links = new LinkService({
-      now: () => Math.floor(Date.now() / 1000),
-      repository: new D1LinkRepository(env.DB),
-    });
+    try {
+      const links = new LinkService({
+        now: () => Math.floor(Date.now() / 1000),
+        repository: new D1LinkRepository(env.DB),
+      });
 
-    const jellyfin = new JellyfinAuthenticationClient({
-      allowInsecureHttp: env.ALLOW_INSECURE_JELLYFIN_HTTP === "true",
-    });
+      const jellyfin = new JellyfinAuthenticationClient({
+        allowInsecureHttp: env.ALLOW_INSECURE_JELLYFIN_HTTP === "true",
+      });
 
-    const connections = new JellyfinConnectionService({
-      cipher: new AesGcmTokenCipher(
-        await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get(),
-      ),
-      now: () => Math.floor(Date.now() / 1000),
-      repository: new D1JellyfinConnectionRepository(env.DB),
-    });
+      const connections = new JellyfinConnectionService({
+        cipher: new AesGcmTokenCipher(
+          await env.JELLYFIN_TOKEN_ENCRYPTION_KEY.get(),
+        ),
+        now: () => Math.floor(Date.now() / 1000),
+        repository: new D1JellyfinConnectionRepository(env.DB),
+      });
 
-    return handleRequest(
-      request,
-      links,
-      jellyfin,
-      connections,
-      CONSOLE_DIAGNOSTICS,
-    );
+      return await handleRequest(
+        request,
+        links,
+        jellyfin,
+        connections,
+        CONSOLE_DIAGNOSTICS,
+      );
+    } catch {
+      return responseWithRequestId(
+        textResponse("The onboarding service could not process the request", 500),
+        crypto.randomUUID(),
+      );
+    }
   },
 } satisfies ExportedHandler<Env>;
