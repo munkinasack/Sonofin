@@ -11,6 +11,7 @@ import {
   resolveSonosPlaybackTarget,
 } from "../src/playback-target";
 import aacFixture from "./fixtures/playback/aac-direct-play.json";
+import flac24StereoFixture from "./fixtures/playback/flac-24-96-stereo-transcode.json";
 import flacFixture from "./fixtures/playback/flac-direct-play.json";
 import mp3Fixture from "./fixtures/playback/mp3-direct-play.json";
 import transcodeFixture from "./fixtures/playback/mp3-transcode.json";
@@ -27,6 +28,7 @@ const IDS = [
   "40000000000000000000000000000002",
   "40000000000000000000000000000003",
   "40000000000000000000000000000004",
+  "40000000000000000000000000000005",
 ] as const;
 
 async function parseFixture(payload: unknown, itemId: string): Promise<JellyfinPlaybackInfo> {
@@ -56,6 +58,19 @@ function failNoStream(
     expect(String(error)).not.toContain("https://");
     expect(String(error)).not.toContain(CONNECTION.accessToken);
   }
+}
+
+function failureOf(
+  itemId: string,
+  playback: JellyfinPlaybackInfo,
+): string {
+  try {
+    resolveSonosPlaybackTarget(itemId, playback, CONNECTION);
+  } catch (error) {
+    if (error instanceof JellyfinPlaybackTargetError) return error.failure;
+    throw error;
+  }
+  throw new Error("Expected a rejected playback target");
 }
 
 describe("Sonos playback target resolver", () => {
@@ -109,6 +124,54 @@ describe("Sonos playback target resolver", () => {
     }), CONNECTION)).toEqual(first);
   });
 
+  it("resolves 24-bit/96-kHz stereo FLAC to a safe MP3 transcode target", async () => {
+    const itemId = IDS[4];
+    const playback = await parseFixture(flac24StereoFixture, itemId);
+    expect(playback.mediaSources[0]?.audioStreams[0]).toMatchObject({
+      codec: "flac",
+      channels: 2,
+      sampleRate: 96_000,
+      bitDepth: 24,
+    });
+
+    const target = resolveSonosPlaybackTarget(itemId, playback, CONNECTION);
+    const url = new URL(target.url);
+    expect(target.method).toBe("transcode");
+    expect(target.mimeType).toBe("audio/mpeg");
+    expect(url.origin).toBe("https://media.example.test");
+    expect(url.pathname).toBe(`/jellyfin/audio/${itemId}/stream.mp3`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      DeviceId: CONNECTION.deviceId,
+      MediaSourceId: playback.mediaSources[0]?.id,
+      AudioCodec: "mp3",
+      AudioBitrate: "320000",
+      AudioSampleRate: "48000",
+      TranscodingMaxAudioChannels: "2",
+      EstimateContentLength: "true",
+      RequireAvc: "false",
+      EnableAudioVbrEncoding: "false",
+      "mp3-audiochannels": "2",
+      allowAudioStreamCopy: "false",
+      allowVideoStreamCopy: "false",
+      TranscodeReasons: "AudioSampleRateNotSupported,AudioBitDepthNotSupported",
+    });
+    expect(target.url).not.toContain(CONNECTION.accessToken);
+    expect(target.url).not.toMatch(/ApiKey|PlaySessionId|Tag/iu);
+    expect(target.httpHeaders).toEqual([{
+      header: "Authorization",
+      value:
+        'MediaBrowser Client="Sonofin", Device="Cloudflare Worker", ' +
+        'DeviceId="sonofin-task-8-1-fixture", Version="0.0.0", ' +
+        'Token="task-8-1-fixture-token-not-a-credential"',
+    }]);
+
+    const source = playback.mediaSources[0]!;
+    expect(resolveSonosPlaybackTarget(itemId, oneSource({
+      ...source,
+      supportsDirectPlay: true,
+    }), CONNECTION)).toEqual(target);
+  });
+
   it("normalizes application-root, base-prefixed, and same-origin absolute transcode paths", async () => {
     const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
     const expected = resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION);
@@ -122,6 +185,48 @@ describe("Sonos playback target resolver", () => {
         transcodingUrl,
       }), CONNECTION)).toEqual(expected);
     }
+  });
+
+  it("accepts Jellyfin Boolean casing and omitted audio stream index", async () => {
+    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const original = resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION);
+    const transcodingUrl = source.transcodingUrl!
+      .replace("AudioStreamIndex=0&", "")
+      .replace("EstimateContentLength=true", "EstimateContentLength=True")
+      .replaceAll("=false", "=False");
+    const target = resolveSonosPlaybackTarget(
+      IDS[3],
+      oneSource({ ...source, transcodingUrl }),
+      CONNECTION,
+    );
+    expect(target.method).toBe("transcode");
+    expect(target.url).not.toContain("AudioStreamIndex");
+    expect(target.url).toContain("EstimateContentLength=true");
+    expect(target.url).toContain("RequireAvc=false");
+    expect(target.url).not.toMatch(/=(?:True|False)(?:&|$)/u);
+    expect(target.url).toBe(original.url.replace("AudioStreamIndex=0&", ""));
+  });
+
+  it("classifies source, profile, URL path, and query failures without upstream values", async () => {
+    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const raw = source.transcodingUrl!;
+    const cases = [
+      [{ mediaSources: [] }, "playback_no_media_sources"],
+      [{ errorCode: "upstream-secret", mediaSources: [source] }, "playback_info_error"],
+      [oneSource({ ...source, audioStreams: [] }), "playback_source_metadata"],
+      [oneSource({ ...source, transcodingContainer: "aac" }), "playback_transcode_profile"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("/audio/", "/other/") }), "playback_transcode_url_path"],
+      [oneSource({ ...source, transcodingUrl: `${raw}&Unknown=private-value` }), "playback_transcode_query_shape"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("AudioStreamIndex=0", "AudioStreamIndex=1") }), "playback_transcode_query_binding"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("AudioSampleRate=48000", "AudioSampleRate=96000") }), "playback_transcode_query_audio"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("EstimateContentLength=true", "EstimateContentLength=TRUE") }), "playback_transcode_query_options"],
+    ] as const;
+    for (const [playback, failure] of cases) {
+      expect(failureOf(IDS[3], playback)).toBe(failure);
+    }
+    const error = new JellyfinPlaybackTargetError("playback_transcode_query_shape");
+    expect(String(error)).not.toContain("private-value");
+    expect(String(error)).not.toContain("upstream-secret");
   });
 
   it("ranks direct play, File transcodes, then source IDs independently of response order", async () => {

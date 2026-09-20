@@ -469,7 +469,21 @@ function classifyInternalErrorOrigin(
   error: unknown,
 ): SmapiInternalErrorOrigin {
   if (error instanceof JellyfinPlaybackTargetError) {
-    return "playback_no_compatible_stream";
+    switch (error.failure) {
+      case "playback_info_error":
+      case "playback_no_media_sources":
+      case "playback_credential_conflict":
+      case "playback_source_metadata":
+      case "playback_transcode_profile":
+      case "playback_transcode_url_path":
+      case "playback_transcode_query_shape":
+      case "playback_transcode_query_binding":
+      case "playback_transcode_query_audio":
+      case "playback_transcode_query_options":
+        return error.failure;
+      default:
+        return "playback_no_compatible_stream";
+    }
   }
 
   if (error instanceof SmapiResponseSerializationError) {

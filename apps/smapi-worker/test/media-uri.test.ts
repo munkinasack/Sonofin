@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   JellyfinClientError,
+  JellyfinPlaybackTargetError,
   type JellyfinConnection,
   type JellyfinDataClient,
   type JellyfinPlaybackInfo,
@@ -334,7 +335,7 @@ describe("getMediaURI Worker integration", () => {
     expect(body).toContain("No compatible audio stream is available");
     expect(JSON.parse(vi.mocked(logSink.error).mock.calls[0]?.[0] ?? "{}")).toMatchObject({
       contentKind: "track",
-      internalErrorOrigin: "playback_no_compatible_stream",
+      internalErrorOrigin: "playback_no_media_sources",
       reason: "internal_error",
       soapMethod: "getMediaURI",
     });
@@ -344,6 +345,31 @@ describe("getMediaURI Worker integration", () => {
     expect(logs).not.toContain(ENCODED_TRACK_ID);
     expect(logs).not.toContain(ACCESS_TOKEN);
     expect(logs).not.toContain("private-sonos-token");
+  });
+
+  it("logs only a closed playback failure category", async () => {
+    const logSink = sink();
+    const response = await handleRequest(
+      soapRequest(),
+      dependencies(dataClient(), {
+        logSink,
+        mediaUri: {
+          getMediaURI: vi.fn().mockRejectedValue(
+            new JellyfinPlaybackTargetError("playback_transcode_query_options"),
+          ),
+        },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("No compatible audio stream is available");
+    const log = JSON.parse(vi.mocked(logSink.error).mock.calls[0]?.[0] ?? "{}");
+    expect(log).toMatchObject({
+      internalErrorOrigin: "playback_transcode_query_options",
+      soapMethod: "getMediaURI",
+    });
+    expect(loggedText(logSink)).not.toContain(ACCESS_TOKEN);
+    expect(loggedText(logSink)).not.toContain(TRACK_ID);
   });
 
   it.each([

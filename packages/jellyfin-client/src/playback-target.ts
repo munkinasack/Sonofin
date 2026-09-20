@@ -14,6 +14,18 @@ import {
 
 type PlaybackMethod = "direct-play" | "transcode";
 type PlaybackMimeType = "audio/mpeg" | "audio/aac" | "audio/mp4" | "audio/flac";
+export type JellyfinPlaybackFailure =
+  | "playback_no_compatible_stream"
+  | "playback_info_error"
+  | "playback_no_media_sources"
+  | "playback_credential_conflict"
+  | "playback_source_metadata"
+  | "playback_transcode_profile"
+  | "playback_transcode_url_path"
+  | "playback_transcode_query_shape"
+  | "playback_transcode_query_binding"
+  | "playback_transcode_query_audio"
+  | "playback_transcode_query_options";
 
 export interface JellyfinPlaybackTarget {
   readonly method: PlaybackMethod;
@@ -28,10 +40,12 @@ export interface JellyfinPlaybackTarget {
 /** No upstream value is retained in this public failure. */
 export class JellyfinPlaybackTargetError extends Error {
   readonly code = "no_compatible_stream" as const;
+  readonly failure: JellyfinPlaybackFailure;
 
-  constructor() {
+  constructor(failure: JellyfinPlaybackFailure = "playback_no_compatible_stream") {
     super("No compatible Jellyfin audio stream is available");
     this.name = "JellyfinPlaybackTargetError";
+    this.failure = failure;
   }
 }
 
@@ -39,6 +53,24 @@ interface Candidate extends JellyfinPlaybackTarget {
   readonly sourceId: string;
   readonly fileSource: boolean;
 }
+
+type SourceResolution = Candidate | JellyfinPlaybackFailure;
+type TranscodeUrlResolution =
+  | { readonly url: string }
+  | { readonly failure: JellyfinPlaybackFailure };
+type TranscodeQueryResolution =
+  | { readonly query: string }
+  | { readonly failure: JellyfinPlaybackFailure };
+
+const FAILURE_PRIORITY: readonly JellyfinPlaybackFailure[] = [
+  "playback_transcode_query_audio",
+  "playback_transcode_query_binding",
+  "playback_transcode_query_options",
+  "playback_transcode_query_shape",
+  "playback_transcode_url_path",
+  "playback_transcode_profile",
+  "playback_source_metadata",
+];
 
 const MAX_URL_LENGTH = 4_096;
 const MAX_IDENTIFIER_LENGTH = 255;
@@ -107,7 +139,7 @@ export function resolveSonosPlaybackTarget(
     itemId.includes(connection.accessToken) ||
     connection.deviceId.includes(connection.accessToken)
   ) {
-    throw new JellyfinPlaybackTargetError();
+    throw new JellyfinPlaybackTargetError("playback_credential_conflict");
   }
   const baseUrl = new URL(serverUrl);
   const authorization = jsonHeaders(
@@ -118,10 +150,14 @@ export function resolveSonosPlaybackTarget(
     throw new JellyfinClientError("invalid_input");
   }
   if (playbackInfo.errorCode !== undefined) {
-    throw new JellyfinPlaybackTargetError();
+    throw new JellyfinPlaybackTargetError("playback_info_error");
   }
 
   const candidates: Candidate[] = [];
+  const failures = new Set<JellyfinPlaybackFailure>();
+  if (playbackInfo.mediaSources.length === 0) {
+    throw new JellyfinPlaybackTargetError("playback_no_media_sources");
+  }
   const sourceCounts = new Map<string, number>();
   for (const source of playbackInfo.mediaSources) {
     if (source && safeId(source.id)) {
@@ -130,6 +166,7 @@ export function resolveSonosPlaybackTarget(
   }
   for (const source of playbackInfo.mediaSources) {
     if (source && sourceCounts.get(source.id) !== 1) {
+      failures.add("playback_source_metadata");
       continue;
     }
     const candidate = resolveSource(
@@ -139,9 +176,8 @@ export function resolveSonosPlaybackTarget(
       baseUrl,
       authorization,
     );
-    if (candidate !== undefined) {
-      candidates.push(candidate);
-    }
+    if (typeof candidate === "string") failures.add(candidate);
+    else candidates.push(candidate);
   }
   candidates.sort(
     (left, right) =>
@@ -152,7 +188,10 @@ export function resolveSonosPlaybackTarget(
   );
   const selected = candidates[0];
   if (selected === undefined) {
-    throw new JellyfinPlaybackTargetError();
+    throw new JellyfinPlaybackTargetError(
+      FAILURE_PRIORITY.find((failure) => failures.has(failure)) ??
+        "playback_source_metadata",
+    );
   }
   return {
     method: selected.method,
@@ -168,7 +207,7 @@ function resolveSource(
   connection: JellyfinDataConnection,
   baseUrl: URL,
   authorization: string,
-): Candidate | undefined {
+): SourceResolution {
   if (
     !source ||
     !safeId(source.id) ||
@@ -176,11 +215,11 @@ function resolveSource(
     !Array.isArray(source.audioStreams) ||
     !safeRequiredHeaders(source.requiredHttpHeaders)
   ) {
-    return undefined;
+    return "playback_source_metadata";
   }
   const stream = selectAudioStream(source);
   if (stream === undefined) {
-    return undefined;
+    return "playback_source_metadata";
   }
   const httpHeaders = [{ header: "Authorization" as const, value: authorization }];
   const fileSource =
@@ -209,9 +248,9 @@ function resolveSource(
     boundedToken(source.transcodingContainer)?.toLowerCase() !== "mp3" ||
     boundedToken(source.transcodingSubProtocol)?.toLowerCase() !== "http"
   ) {
-    return undefined;
+    return "playback_transcode_profile";
   }
-  const url = normalizeTranscodeUrl(
+  const target = normalizeTranscodeUrl(
     source.transcodingUrl,
     itemId,
     source.id,
@@ -219,12 +258,10 @@ function resolveSource(
     connection,
     baseUrl,
   );
-  if (url === undefined) {
-    return undefined;
-  }
+  if ("failure" in target) return target.failure;
   return {
     method: "transcode",
-    url,
+    url: target.url,
     mimeType: "audio/mpeg",
     httpHeaders,
     sourceId: source.id,
@@ -309,13 +346,13 @@ function normalizeTranscodeUrl(
   audioStreamIndex: number,
   connection: JellyfinDataConnection,
   baseUrl: URL,
-): string | undefined {
+): TranscodeUrlResolution {
   if (!safeText(raw, MAX_URL_LENGTH) || raw.includes("\\") || raw.includes("#")) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   const absolute = raw.startsWith("https://") || raw.startsWith("http://");
   if ((!absolute && !raw.startsWith("/")) || raw.startsWith("//")) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   const rawPath = raw.split("?", 1)[0] ?? "";
   let path: string;
@@ -324,20 +361,20 @@ function normalizeTranscodeUrl(
     const pathStart = raw.indexOf("/", authorityStart);
     const authority = raw.slice(authorityStart, pathStart < 0 ? undefined : pathStart).split("?", 1)[0];
     if (authority?.includes("@")) {
-      return undefined;
+      return { failure: "playback_transcode_url_path" };
     }
     path = pathStart < 0 ? "/" : raw.slice(pathStart).split("?", 1)[0] ?? "";
   } else {
     path = rawPath;
   }
   if (!safePath(path)) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   let url: URL;
   try {
     url = new URL(raw, baseUrl);
   } catch {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   if (
     url.protocol !== "https:" ||
@@ -346,25 +383,25 @@ function normalizeTranscodeUrl(
     url.password !== "" ||
     url.hash !== ""
   ) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   const basePath = baseUrl.pathname.replace(/\/$/u, "");
   const expectedSuffix = `/audio/${encodeSegment(itemId)}/stream.mp3`;
   const alreadyBased = path === basePath || path.startsWith(`${basePath}/`);
   if (absolute && basePath !== "" && !alreadyBased) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   const applicationPath = alreadyBased ? path.slice(basePath.length) : path;
   if (!pathMatches(applicationPath, itemId)) {
-    return undefined;
+    return { failure: "playback_transcode_url_path" };
   }
   const query = parseTranscodeQuery(raw, sourceId, audioStreamIndex, connection);
-  if (query === undefined) {
-    return undefined;
-  }
+  if ("failure" in query) return query;
   const normalized = new URL(`${basePath}${expectedSuffix}`, baseUrl);
-  normalized.search = query;
-  return normalized.href.length <= MAX_URL_LENGTH ? normalized.href : undefined;
+  normalized.search = query.query;
+  return normalized.href.length <= MAX_URL_LENGTH
+    ? { url: normalized.href }
+    : { failure: "playback_transcode_url_path" };
 }
 
 function safePath(path: string): boolean {
@@ -420,20 +457,20 @@ function parseTranscodeQuery(
   sourceId: string,
   audioStreamIndex: number,
   connection: JellyfinDataConnection,
-): string | undefined {
+): TranscodeQueryResolution {
   const separator = rawUrl.indexOf("?");
   if (separator < 0) {
-    return undefined;
+    return { failure: "playback_transcode_query_shape" };
   }
   const rawQuery = rawUrl.slice(separator + 1).replace(/^&/u, "");
   if (rawQuery.length === 0 || rawQuery.length > MAX_URL_LENGTH) {
-    return undefined;
+    return { failure: "playback_transcode_query_shape" };
   }
   const values = new Map<string, string>();
   for (const entry of rawQuery.split("&")) {
     const equals = entry.indexOf("=");
     if (equals < 1) {
-      return undefined;
+      return { failure: "playback_transcode_query_shape" };
     }
     const name = entry.slice(0, equals);
     const encodedValue = entry.slice(equals + 1);
@@ -443,20 +480,20 @@ function parseTranscodeQuery(
       encodedValue.length > (name === "ApiKey" ? MAX_TOKEN_LENGTH : 512) ||
       PERCENT.test(encodedValue)
     ) {
-      return undefined;
+      return { failure: "playback_transcode_query_shape" };
     }
     let value: string;
     try {
       value = decodeURIComponent(encodedValue.replace(/\+/gu, " "));
     } catch {
-      return undefined;
+      return { failure: "playback_transcode_query_shape" };
     }
     if (
       !isWellFormedUnicode(value) ||
       value.length > (name === "ApiKey" ? MAX_TOKEN_LENGTH : 255) ||
       hasControl(value)
     ) {
-      return undefined;
+      return { failure: "playback_transcode_query_shape" };
     }
     values.set(name, value);
   }
@@ -465,21 +502,39 @@ function parseTranscodeQuery(
     values.get("DeviceId") !== connection.deviceId ||
     values.get("MediaSourceId") !== sourceId ||
     values.get("AudioCodec") !== "mp3" ||
-    values.get("AudioStreamIndex") !== String(audioStreamIndex) ||
+    (values.has("AudioStreamIndex") &&
+      values.get("AudioStreamIndex") !== String(audioStreamIndex))
+  ) {
+    return { failure: "playback_transcode_query_binding" };
+  }
+  if (
     !boundedInteger(values.get("AudioBitrate"), 1, 320_000) ||
     !boundedInteger(values.get("AudioSampleRate"), 1, 48_000) ||
     !boundedInteger(values.get("TranscodingMaxAudioChannels"), 1, 2) ||
-    !boundedInteger(values.get("mp3-audiochannels"), 1, 2) ||
-    values.get("EstimateContentLength") !== "true" ||
-    values.get("RequireAvc") !== "false" ||
-    values.get("EnableAudioVbrEncoding") !== "false" ||
-    values.get("allowAudioStreamCopy") !== "false" ||
-    values.get("allowVideoStreamCopy") !== "false" ||
+    !boundedInteger(values.get("mp3-audiochannels"), 1, 2)
+  ) {
+    return { failure: "playback_transcode_query_audio" };
+  }
+  if (
+    !approvedBoolean(values.get("EstimateContentLength"), true) ||
+    !approvedBoolean(values.get("RequireAvc"), false) ||
+    !approvedBoolean(values.get("EnableAudioVbrEncoding"), false) ||
+    !approvedBoolean(values.get("allowAudioStreamCopy"), false) ||
+    !approvedBoolean(values.get("allowVideoStreamCopy"), false) ||
     !validReasons(values.get("TranscodeReasons")) ||
     !validDiscardedId(values.get("PlaySessionId")) ||
     !validDiscardedId(values.get("Tag"))
   ) {
-    return undefined;
+    return { failure: "playback_transcode_query_options" };
+  }
+  for (const [name, expected] of [
+    ["EstimateContentLength", true],
+    ["RequireAvc", false],
+    ["EnableAudioVbrEncoding", false],
+    ["allowAudioStreamCopy", false],
+    ["allowVideoStreamCopy", false],
+  ] as const) {
+    values.set(name, String(expected));
   }
   const canonical = new URLSearchParams();
   for (const name of QUERY_ORDER) {
@@ -488,7 +543,11 @@ function parseTranscodeQuery(
       canonical.append(name, value);
     }
   }
-  return canonical.toString();
+  return { query: canonical.toString() };
+}
+
+function approvedBoolean(value: string | undefined, expected: boolean): boolean {
+  return value === String(expected) || value === (expected ? "True" : "False");
 }
 
 function validReasons(value: string | undefined): boolean {
