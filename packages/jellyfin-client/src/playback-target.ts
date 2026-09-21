@@ -21,7 +21,14 @@ export type JellyfinPlaybackFailure =
   | "playback_credential_conflict"
   | "playback_source_metadata"
   | "playback_transcode_profile"
-  | "playback_transcode_url_path"
+  | "playback_transcode_url_missing"
+  | "playback_transcode_url_malformed"
+  | "playback_transcode_url_unsafe_path"
+  | "playback_transcode_url_insecure_scheme"
+  | "playback_transcode_url_origin"
+  | "playback_transcode_url_base_path"
+  | "playback_transcode_url_route"
+  | "playback_transcode_url_too_long"
   | "playback_transcode_query_shape"
   | "playback_transcode_query_binding"
   | "playback_transcode_query_audio"
@@ -67,7 +74,14 @@ const FAILURE_PRIORITY: readonly JellyfinPlaybackFailure[] = [
   "playback_transcode_query_binding",
   "playback_transcode_query_options",
   "playback_transcode_query_shape",
-  "playback_transcode_url_path",
+  "playback_transcode_url_unsafe_path",
+  "playback_transcode_url_insecure_scheme",
+  "playback_transcode_url_origin",
+  "playback_transcode_url_base_path",
+  "playback_transcode_url_route",
+  "playback_transcode_url_too_long",
+  "playback_transcode_url_malformed",
+  "playback_transcode_url_missing",
   "playback_transcode_profile",
   "playback_source_metadata",
 ];
@@ -77,6 +91,8 @@ const MAX_IDENTIFIER_LENGTH = 255;
 const MAX_TOKEN_LENGTH = 4_096;
 const PERCENT = /%(?![0-9a-fA-F]{2})/u;
 const ENCODED_SEPARATOR = /%(?:2f|5c|25)/iu;
+const GUID_N = /^[0-9a-f]{32}$/iu;
+const GUID_D = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const REASONS = new Set([
   "ContainerNotSupported",
   "ContainerBitrateExceedsLimit",
@@ -347,12 +363,24 @@ function normalizeTranscodeUrl(
   connection: JellyfinDataConnection,
   baseUrl: URL,
 ): TranscodeUrlResolution {
-  if (!safeText(raw, MAX_URL_LENGTH) || raw.includes("\\") || raw.includes("#")) {
-    return { failure: "playback_transcode_url_path" };
+  if (raw === undefined || raw === "") {
+    return { failure: "playback_transcode_url_missing" };
   }
-  const absolute = raw.startsWith("https://") || raw.startsWith("http://");
+  if (typeof raw !== "string" || !isWellFormedUnicode(raw)) {
+    return { failure: "playback_transcode_url_malformed" };
+  }
+  if (raw.length > MAX_URL_LENGTH) {
+    return { failure: "playback_transcode_url_too_long" };
+  }
+  if (raw.trim().length === 0) {
+    return { failure: "playback_transcode_url_missing" };
+  }
+  if (hasControl(raw) || raw.includes("\\") || raw.includes("#")) {
+    return { failure: "playback_transcode_url_unsafe_path" };
+  }
+  const absolute = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(raw);
   if ((!absolute && !raw.startsWith("/")) || raw.startsWith("//")) {
-    return { failure: "playback_transcode_url_path" };
+    return { failure: "playback_transcode_url_malformed" };
   }
   const rawPath = raw.split("?", 1)[0] ?? "";
   let path: string;
@@ -361,39 +389,39 @@ function normalizeTranscodeUrl(
     const pathStart = raw.indexOf("/", authorityStart);
     const authority = raw.slice(authorityStart, pathStart < 0 ? undefined : pathStart).split("?", 1)[0];
     if (authority?.includes("@")) {
-      return { failure: "playback_transcode_url_path" };
+      return { failure: "playback_transcode_url_unsafe_path" };
     }
     path = pathStart < 0 ? "/" : raw.slice(pathStart).split("?", 1)[0] ?? "";
   } else {
     path = rawPath;
   }
   if (!safePath(path)) {
-    return { failure: "playback_transcode_url_path" };
+    return { failure: "playback_transcode_url_unsafe_path" };
   }
   let url: URL;
   try {
     url = new URL(raw, baseUrl);
   } catch {
-    return { failure: "playback_transcode_url_path" };
+    return { failure: "playback_transcode_url_malformed" };
   }
-  if (
-    url.protocol !== "https:" ||
-    url.origin !== baseUrl.origin ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.hash !== ""
-  ) {
-    return { failure: "playback_transcode_url_path" };
+  if (url.protocol !== "https:") {
+    return { failure: "playback_transcode_url_insecure_scheme" };
+  }
+  if (url.origin !== baseUrl.origin) {
+    return { failure: "playback_transcode_url_origin" };
+  }
+  if (url.username !== "" || url.password !== "" || url.hash !== "") {
+    return { failure: "playback_transcode_url_unsafe_path" };
   }
   const basePath = baseUrl.pathname.replace(/\/$/u, "");
   const expectedSuffix = `/audio/${encodeSegment(itemId)}/stream.mp3`;
   const alreadyBased = path === basePath || path.startsWith(`${basePath}/`);
   if (absolute && basePath !== "" && !alreadyBased) {
-    return { failure: "playback_transcode_url_path" };
+    return { failure: "playback_transcode_url_base_path" };
   }
   const applicationPath = alreadyBased ? path.slice(basePath.length) : path;
   if (!pathMatches(applicationPath, itemId)) {
-    return { failure: "playback_transcode_url_path" };
+    return { failure: "playback_transcode_url_route" };
   }
   const query = parseTranscodeQuery(raw, sourceId, audioStreamIndex, connection);
   if ("failure" in query) return query;
@@ -401,7 +429,7 @@ function normalizeTranscodeUrl(
   normalized.search = query.query;
   return normalized.href.length <= MAX_URL_LENGTH
     ? { url: normalized.href }
-    : { failure: "playback_transcode_url_path" };
+    : { failure: "playback_transcode_url_too_long" };
 }
 
 function safePath(path: string): boolean {
@@ -446,10 +474,25 @@ function pathMatches(path: string, itemId: string): boolean {
     return false;
   }
   try {
-    return decodeURIComponent(segments[2] ?? "") === itemId;
+    const pathId = decodeURIComponent(segments[2] ?? "");
+    if (pathId === itemId) {
+      return true;
+    }
+    const itemGuid = canonicalGuid(itemId);
+    return itemGuid !== undefined && canonicalGuid(pathId) === itemGuid;
   } catch {
     return false;
   }
+}
+
+function canonicalGuid(value: string): string | undefined {
+  if (GUID_N.test(value)) {
+    return value.toLowerCase();
+  }
+  if (GUID_D.test(value)) {
+    return value.replaceAll("-", "").toLowerCase();
+  }
+  return undefined;
 }
 
 function parseTranscodeQuery(

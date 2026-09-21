@@ -29,7 +29,7 @@
       ],
       "Bitrate": 2852000,
       "RequiredHttpHeaders": {},
-      "TranscodingUrl": "/audio/40000000000000000000000000000005/stream.mp3?&DeviceId=sonofin-task-8-1-fixture&MediaSourceId=90000000000000000000000000000005&AudioCodec=mp3&AudioBitrate=320000&AudioSampleRate=48000&PlaySessionId=55555555555555555555555555555555&ApiKey=task-8-1-fixture-token-not-a-credential&TranscodingMaxAudioChannels=2&EstimateContentLength=True&RequireAvc=false&EnableAudioVbrEncoding=false&mp3-audiochannels=2&allowAudioStreamCopy=false&allowVideoStreamCopy=false&TranscodeReasons=AudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+      "TranscodingUrl": "/audio/40000000-0000-0000-0000-000000000005/stream.mp3?&DeviceId=sonofin-task-8-1-fixture&MediaSourceId=90000000000000000000000000000005&AudioCodec=mp3&AudioBitrate=320000&AudioSampleRate=48000&PlaySessionId=55555555555555555555555555555555&ApiKey=task-8-1-fixture-token-not-a-credential&TranscodingMaxAudioChannels=2&EstimateContentLength=True&RequireAvc=false&EnableAudioVbrEncoding=false&mp3-audiochannels=2&allowAudioStreamCopy=false&allowVideoStreamCopy=false&TranscodeReasons=AudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
       "TranscodingSubProtocol": "http",
       "TranscodingContainer": "mp3",
       "DefaultAudioStreamIndex": 0

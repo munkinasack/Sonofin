@@ -133,6 +133,9 @@ describe("Sonos playback target resolver", () => {
       sampleRate: 96_000,
       bitDepth: 24,
     });
+    expect(playback.mediaSources[0]?.transcodingUrl).toContain(
+      "/audio/40000000-0000-0000-0000-000000000005/stream.mp3",
+    );
 
     const target = resolveSonosPlaybackTarget(itemId, playback, CONNECTION);
     const url = new URL(target.url);
@@ -172,6 +175,44 @@ describe("Sonos playback target resolver", () => {
     }), CONNECTION)).toEqual(target);
   });
 
+  it("matches only the requested GUID across Jellyfin N and D URL forms", async () => {
+    const source = (await parseFixture(flac24StereoFixture, IDS[4])).mediaSources[0]!;
+    const raw = source.transcodingUrl!;
+    const dForm = "40000000-0000-0000-0000-000000000005";
+    const letterNForm = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const letterDForm = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+
+    const caseTarget = resolveSonosPlaybackTarget(letterNForm, oneSource({
+      ...source,
+      transcodingUrl: raw.replace(dForm, letterDForm),
+    }), CONNECTION);
+    expect(new URL(caseTarget.url).pathname).toBe(
+      `/jellyfin/audio/${letterNForm}/stream.mp3`,
+    );
+
+    for (const [pathId, failure] of [
+      ["40000000-0000-0000-0000-000000000006", "playback_transcode_url_route"],
+      ["4000000-0000-0000-0000-000000000005", "playback_transcode_url_route"],
+      [`${dForm}%2Fextra`, "playback_transcode_url_unsafe_path"],
+    ] as const) {
+      expect(failureOf(IDS[4], oneSource({
+        ...source,
+        transcodingUrl: raw.replace(dForm, pathId),
+      }))).toBe(failure);
+    }
+
+    const customId = "custom-id";
+    const custom = raw.replace(dForm, customId);
+    expect(resolveSonosPlaybackTarget(customId, oneSource({
+      ...source,
+      transcodingUrl: custom,
+    }), CONNECTION).method).toBe("transcode");
+    expect(failureOf(customId, oneSource({
+      ...source,
+      transcodingUrl: custom.replace(customId, "CUSTOM-ID"),
+    }))).toBe("playback_transcode_url_route");
+  });
+
   it("normalizes application-root, base-prefixed, and same-origin absolute transcode paths", async () => {
     const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
     const expected = resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION);
@@ -207,7 +248,7 @@ describe("Sonos playback target resolver", () => {
     expect(target.url).toBe(original.url.replace("AudioStreamIndex=0&", ""));
   });
 
-  it("classifies source, profile, URL path, and query failures without upstream values", async () => {
+  it("classifies source, profile, URL, and query failures without upstream values", async () => {
     const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
     const raw = source.transcodingUrl!;
     const cases = [
@@ -215,7 +256,14 @@ describe("Sonos playback target resolver", () => {
       [{ errorCode: "upstream-secret", mediaSources: [source] }, "playback_info_error"],
       [oneSource({ ...source, audioStreams: [] }), "playback_source_metadata"],
       [oneSource({ ...source, transcodingContainer: "aac" }), "playback_transcode_profile"],
-      [oneSource({ ...source, transcodingUrl: raw.replace("/audio/", "/other/") }), "playback_transcode_url_path"],
+      [oneSource({ ...source, transcodingUrl: "" }), "playback_transcode_url_missing"],
+      [oneSource({ ...source, transcodingUrl: `audio/${IDS[3]}/stream.mp3` }), "playback_transcode_url_malformed"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("/audio/", "/%2e%2e/audio/") }), "playback_transcode_url_unsafe_path"],
+      [oneSource({ ...source, transcodingUrl: `http://media.example.test${raw}` }), "playback_transcode_url_insecure_scheme"],
+      [oneSource({ ...source, transcodingUrl: `https://elsewhere.example.test/jellyfin${raw}` }), "playback_transcode_url_origin"],
+      [oneSource({ ...source, transcodingUrl: `https://media.example.test${raw}` }), "playback_transcode_url_base_path"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("/audio/", "/other/") }), "playback_transcode_url_route"],
+      [oneSource({ ...source, transcodingUrl: `${raw}&Tag=${"a".repeat(4_096)}` }), "playback_transcode_url_too_long"],
       [oneSource({ ...source, transcodingUrl: `${raw}&Unknown=private-value` }), "playback_transcode_query_shape"],
       [oneSource({ ...source, transcodingUrl: raw.replace("AudioStreamIndex=0", "AudioStreamIndex=1") }), "playback_transcode_query_binding"],
       [oneSource({ ...source, transcodingUrl: raw.replace("AudioSampleRate=48000", "AudioSampleRate=96000") }), "playback_transcode_query_audio"],

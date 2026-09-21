@@ -347,7 +347,10 @@ describe("getMediaURI Worker integration", () => {
     expect(logs).not.toContain("private-sonos-token");
   });
 
-  it("logs only a closed playback failure category", async () => {
+  it.each([
+    "playback_transcode_query_options",
+    "playback_transcode_url_route",
+  ] as const)("logs only a closed playback failure category: %s", async (failure) => {
     const logSink = sink();
     const response = await handleRequest(
       soapRequest(),
@@ -355,7 +358,7 @@ describe("getMediaURI Worker integration", () => {
         logSink,
         mediaUri: {
           getMediaURI: vi.fn().mockRejectedValue(
-            new JellyfinPlaybackTargetError("playback_transcode_query_options"),
+            new JellyfinPlaybackTargetError(failure),
           ),
         },
       }),
@@ -365,7 +368,7 @@ describe("getMediaURI Worker integration", () => {
     expect(await response.text()).toContain("No compatible audio stream is available");
     const log = JSON.parse(vi.mocked(logSink.error).mock.calls[0]?.[0] ?? "{}");
     expect(log).toMatchObject({
-      internalErrorOrigin: "playback_transcode_query_options",
+      internalErrorOrigin: failure,
       soapMethod: "getMediaURI",
     });
     expect(loggedText(logSink)).not.toContain(ACCESS_TOKEN);
