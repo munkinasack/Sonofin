@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build": "pnpm --filter './apps/*' build",
+    "preview:auth": "wrangler versions upload --config apps/auth-worker/wrangler.jsonc",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:d1 && pnpm build",
     "db:migrate:local": "wrangler d1 migrations apply sonofin --local --persist-to .wrangler/state --config apps/smapi-worker/wrangler.jsonc",
     "dev": "pnpm dev:smapi",

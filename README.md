@@ -666,6 +666,15 @@ pnpm --filter @sonofin/auth-worker deploy
 pnpm --filter @sonofin/smapi-worker deploy
 ```
 
+For the Cloudflare Git build connected to `sonofin-auth`, keep the production
+root directory at `apps/auth-worker` with deploy command `pnpm run deploy`.
+If its non-production branch build runs from the repository root (`/`), set
+the **Version command** to `pnpm run preview:auth`. The root script passes
+`--config apps/auth-worker/wrangler.jsonc` to Wrangler so the preview upload
+uses the auth Worker entry point instead of looking for a root Wrangler file.
+Do not add a root Wrangler configuration; this repository contains two
+Workers.
+
 Set `ONBOARDING_URL` in the SMAPI Wrangler configuration to the deployed HTTPS
 `sonofin-auth` URL before deployment. Do not use the local fixture database ID
 in production. Do not reuse either local fixture, reuse one key across the AES
