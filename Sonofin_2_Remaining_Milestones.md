@@ -511,6 +511,35 @@ hardware plus known MP3, AAC, FLAC, and forced-transcode fixtures.
 - Fix only bounded defects; split larger compatibility failures. Mark Milestone
   8 complete only when required playback cases succeed and `pnpm check` passes.
 
+**Live status, 2026-09-20:** MP3, AAC-LC, and 16-bit FLAC played on a Play:1
+with pause, resume, seek, and skip. A 24-bit/96-kHz FLAC negotiated to MP3
+and briefly made sound, then Sonos stopped with an encoding error. The
+FFmpeg log shows MP3 output without an encoding error. Stock Jellyfin
+10.11.11's progressive transcode response disables byte ranges and uses a
+nonseekable stream; this is a strong compatibility hypothesis pending live
+request/response header capture. See
+[`docs/verification/task-8-5-playback.md`](docs/verification/task-8-5-playback.md).
+Task 8.5 remains open; the larger delivery-path investigation is Task 8.6.
+
+### [ ] Task 8.6 — Sonos-compatible forced-transcode delivery
+
+**Prerequisite:** Task 8.5's initial real-device evidence. **Budget:** decide
+after the request/response capture and ADR update.
+
+- Capture the real Play:1's authenticated GET, optional HEAD, and Range
+  requests and Jellyfin's status, `Content-Type`, `Content-Length`,
+  `Accept-Ranges`, and `Content-Range` responses without retaining credentials,
+  private URLs, or identifiers.
+- Confirm the cause of the brief MP3 transcode playback failure. Evaluate a
+  Jellyfin-side, range-capable completed transcode that preserves direct
+  Sonos-to-Jellyfin delivery. Any alternate delivery path requires a new
+  playback ADR and review of authentication, cache lifetime, stable URIs,
+  resource bounds, and credential exposure before implementation.
+- Implement the selected solution, add behavior and security tests, deploy,
+  and retest play, pause, resume, seek, and skip for a real forced transcode.
+  Close Task 8.5 and Milestone 8 only after the full compatibility matrix and
+  `pnpm check` pass.
+
 ## Milestone 8A — Authenticated artwork
 
 Milestone exit: Sonos receives album and track artwork through short, HTTPS
