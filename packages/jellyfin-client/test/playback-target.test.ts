@@ -153,7 +153,7 @@ describe("Sonos playback target resolver", () => {
       EstimateContentLength: "true",
       RequireAvc: "false",
       EnableAudioVbrEncoding: "false",
-      "mp3-audiochannels": "2",
+      audiochannels: "2",
       allowAudioStreamCopy: "false",
       allowVideoStreamCopy: "false",
       TranscodeReasons: "AudioSampleRateNotSupported,AudioBitDepthNotSupported",
@@ -246,6 +246,21 @@ describe("Sonos playback target resolver", () => {
     expect(target.url).toContain("RequireAvc=false");
     expect(target.url).not.toMatch(/=(?:True|False)(?:&|$)/u);
     expect(target.url).toBe(original.url.replace("AudioStreamIndex=0&", ""));
+  });
+
+  it("accepts only one bounded audio channel option", async () => {
+    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const raw = source.transcodingUrl!;
+    expect(resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION).method)
+      .toBe("transcode");
+    expect(failureOf(IDS[3], oneSource({
+      ...source,
+      transcodingUrl: `${raw}&audiochannels=2`,
+    }))).toBe("playback_transcode_query_audio");
+    expect(failureOf(IDS[3], oneSource({
+      ...source,
+      transcodingUrl: raw.replace("mp3-audiochannels=2", "audiochannels=3"),
+    }))).toBe("playback_transcode_query_audio");
   });
 
   it("classifies source, profile, URL, and query failures without upstream values", async () => {

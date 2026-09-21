@@ -116,6 +116,7 @@ const QUERY_ORDER = [
   "EstimateContentLength",
   "RequireAvc",
   "EnableAudioVbrEncoding",
+  "audiochannels",
   "mp3-audiochannels",
   "allowAudioStreamCopy",
   "allowVideoStreamCopy",
@@ -550,11 +551,16 @@ function parseTranscodeQuery(
   ) {
     return { failure: "playback_transcode_query_binding" };
   }
+  const channelOptions = [
+    values.get("audiochannels"),
+    values.get("mp3-audiochannels"),
+  ].filter((value): value is string => value !== undefined);
   if (
     !boundedInteger(values.get("AudioBitrate"), 1, 320_000) ||
     !boundedInteger(values.get("AudioSampleRate"), 1, 48_000) ||
     !boundedInteger(values.get("TranscodingMaxAudioChannels"), 1, 2) ||
-    !boundedInteger(values.get("mp3-audiochannels"), 1, 2)
+    channelOptions.length !== 1 ||
+    !boundedInteger(channelOptions[0], 1, 2)
   ) {
     return { failure: "playback_transcode_query_audio" };
   }
