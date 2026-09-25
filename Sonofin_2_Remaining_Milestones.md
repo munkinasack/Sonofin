@@ -526,6 +526,12 @@ Task 8.5 remains open; the larger delivery-path investigation is Task 8.6.
 **Prerequisite:** Task 8.5's initial real-device evidence. **Budget:** decide
 after the request/response capture and ADR update.
 
+**Status:** source review found no supported stock Jellyfin 10.11.11 path for
+a completed, range-capable MP3 transcode. The credential-safe live capture is
+the current gate; no replacement delivery topology has been selected or
+implemented. See
+[`docs/verification/task-8-6-transcode-delivery.md`](docs/verification/task-8-6-transcode-delivery.md).
+
 - Capture the real Play:1's authenticated GET, optional HEAD, and Range
   requests and Jellyfin's status, `Content-Type`, `Content-Length`,
   `Accept-Ranges`, and `Content-Range` responses without retaining credentials,
