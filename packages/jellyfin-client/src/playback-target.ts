@@ -13,7 +13,12 @@ import {
 } from "./transport";
 
 type PlaybackMethod = "direct-play" | "transcode";
-type PlaybackMimeType = "audio/mpeg" | "audio/aac" | "audio/mp4" | "audio/flac";
+type PlaybackMimeType =
+  | "audio/mpeg"
+  | "audio/aac"
+  | "audio/mp4"
+  | "audio/flac"
+  | "application/vnd.apple.mpegurl";
 export type JellyfinPlaybackFailure =
   | "playback_no_compatible_stream"
   | "playback_info_error"
@@ -112,12 +117,15 @@ const QUERY_ORDER = [
   "AudioStreamIndex",
   "AudioBitrate",
   "AudioSampleRate",
+  "SegmentContainer",
+  "SegmentLength",
+  "MinSegments",
+  "BreakOnNonKeyFrames",
   "TranscodingMaxAudioChannels",
-  "EstimateContentLength",
   "RequireAvc",
   "EnableAudioVbrEncoding",
   "audiochannels",
-  "mp3-audiochannels",
+  "aac-audiochannels",
   "allowAudioStreamCopy",
   "allowVideoStreamCopy",
   "TranscodeReasons",
@@ -262,8 +270,8 @@ function resolveSource(
   }
   if (
     !source.supportsTranscoding ||
-    boundedToken(source.transcodingContainer)?.toLowerCase() !== "mp3" ||
-    boundedToken(source.transcodingSubProtocol)?.toLowerCase() !== "http"
+    boundedToken(source.transcodingContainer)?.toLowerCase() !== "ts" ||
+    boundedToken(source.transcodingSubProtocol)?.toLowerCase() !== "hls"
   ) {
     return "playback_transcode_profile";
   }
@@ -279,7 +287,7 @@ function resolveSource(
   return {
     method: "transcode",
     url: target.url,
-    mimeType: "audio/mpeg",
+    mimeType: "application/vnd.apple.mpegurl",
     httpHeaders,
     sourceId: source.id,
     fileSource,
@@ -415,7 +423,7 @@ function normalizeTranscodeUrl(
     return { failure: "playback_transcode_url_unsafe_path" };
   }
   const basePath = baseUrl.pathname.replace(/\/$/u, "");
-  const expectedSuffix = `/audio/${encodeSegment(itemId)}/stream.mp3`;
+  const expectedSuffix = `/audio/${encodeSegment(itemId)}/master.m3u8`;
   const alreadyBased = path === basePath || path.startsWith(`${basePath}/`);
   if (absolute && basePath !== "" && !alreadyBased) {
     return { failure: "playback_transcode_url_base_path" };
@@ -470,7 +478,7 @@ function pathMatches(path: string, itemId: string): boolean {
     segments.length !== 4 ||
     segments[0] !== "" ||
     segments[1] !== "audio" ||
-    segments[3] !== "stream.mp3"
+    segments[3] !== "master.m3u8"
   ) {
     return false;
   }
@@ -545,7 +553,7 @@ function parseTranscodeQuery(
     (values.has("ApiKey") && values.get("ApiKey") !== connection.accessToken) ||
     values.get("DeviceId") !== connection.deviceId ||
     values.get("MediaSourceId") !== sourceId ||
-    values.get("AudioCodec") !== "mp3" ||
+    values.get("AudioCodec") !== "aac" ||
     (values.has("AudioStreamIndex") &&
       values.get("AudioStreamIndex") !== String(audioStreamIndex))
   ) {
@@ -553,7 +561,7 @@ function parseTranscodeQuery(
   }
   const channelOptions = [
     values.get("audiochannels"),
-    values.get("mp3-audiochannels"),
+    values.get("aac-audiochannels"),
   ].filter((value): value is string => value !== undefined);
   if (
     !boundedInteger(values.get("AudioBitrate"), 1, 320_000) ||
@@ -565,7 +573,10 @@ function parseTranscodeQuery(
     return { failure: "playback_transcode_query_audio" };
   }
   if (
-    !approvedBoolean(values.get("EstimateContentLength"), true) ||
+    values.get("SegmentContainer") !== "ts" ||
+    values.get("SegmentLength") !== "10" ||
+    values.get("MinSegments") !== "1" ||
+    !approvedBoolean(values.get("BreakOnNonKeyFrames"), false) ||
     !approvedBoolean(values.get("RequireAvc"), false) ||
     !approvedBoolean(values.get("EnableAudioVbrEncoding"), false) ||
     !approvedBoolean(values.get("allowAudioStreamCopy"), false) ||
@@ -577,7 +588,7 @@ function parseTranscodeQuery(
     return { failure: "playback_transcode_query_options" };
   }
   for (const [name, expected] of [
-    ["EstimateContentLength", true],
+    ["BreakOnNonKeyFrames", false],
     ["RequireAvc", false],
     ["EnableAudioVbrEncoding", false],
     ["allowAudioStreamCopy", false],

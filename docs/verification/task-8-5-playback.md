@@ -1,7 +1,8 @@
 # Task 8.5 real playback verification
 
-Status: in progress. The required forced-transcode case fails on the real
-player. Keep Task 8.5 and Milestone 8 open.
+Status: in progress. The required forced-transcode case failed with the former
+progressive-MP3 path. Task 8.7 replaces it with HLS AAC; Task 8.8 must verify
+that path on the real player. Keep Task 8.5 and Milestone 8 open.
 
 ## Test setup and results
 
@@ -99,9 +100,12 @@ delivery path. Retest play, pause, resume, seek, and skip on the Play:1.
 
 ## Remaining Task 8.5 evidence
 
-For all four required formats, capture the selected Jellyfin method, actual
-file container and `Content-Type`, accurate `Content-Length`, optional HEAD,
-Range/206/416 behavior, redirects, and stable repeated `getMediaURI` results.
-Verify that Sonos sends the constructed Authorization header on ordinary
-and ranged requests, and that captured URLs and logs contain no token.
-Keep credentials and private server details out of checked-in evidence.
+For the three direct formats, finish the selected Jellyfin method, actual file
+container and `Content-Type`, accurate `Content-Length`, optional HEAD,
+Range/206/416 behavior, redirects, and stable repeated `getMediaURI` evidence.
+For the forced-transcode case, Task 8.8 instead verifies the HLS master and
+media playlists, complete AAC-in-MPEG-TS segments, HLS media types, startup
+latency, and stable retries. Verify that Sonos sends the constructed
+Authorization header on every applicable direct or HLS request and that
+captured URLs and logs contain no token. Keep credentials and private server
+details out of checked-in evidence.

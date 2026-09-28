@@ -1,8 +1,10 @@
 # Task 8.6 forced-transcode delivery investigation
 
-Status: live protocol capture required. Do not implement or deploy a replacement
-delivery path until the credential-safe capture below confirms the real-player
-failure mode. Keep Tasks 8.5 and 8.6 and Milestone 8 open.
+Status: complete as a progressive-MP3 feasibility investigation. The source
+contract is sufficient to reject that path even though the exact historical
+Play:1 request remains uncaptured. ADR 0002 selects HLS AAC as a distinct
+replacement; Task 8.8 owns its real-device gate. Keep Task 8.5 and Milestone 8
+open.
 
 ## Confirmed source behavior
 
@@ -34,14 +36,16 @@ requires an accurate `Content-Length`, working HEAD requests, `206` for valid
 byte ranges, and `416` for unsatisfiable ranges. It does not by itself prove
 which missing response property caused the observed Play:1 encoding error.
 
-The legacy Jellyfin HLS segment route is not a usable loophole. It exposes an
-internal transcode-cache filename rather than an authenticated, associated
-full-track MP3, and modern HLS output does not provide the required progressive
-MP3 contract.
+The legacy Jellyfin segment route is not a way to manufacture one completed
+progressive MP3. Modern HLS is instead a distinct playlist-and-segment delivery
+contract. It requires its own MIME, authentication-propagation, URL, and
+hardware decision, now recorded in
+[`ADR 0002`](../adr/0002-hls-aac-forced-transcodes.md).
 
-## Live capture gate
+## Optional historical live capture
 
-Capture the real Play:1 request and Jellyfin response at the existing
+If diagnosing which progressive-response property triggered the old Play:1
+error remains useful, capture the real request and Jellyfin response at the existing
 Jellyfin HTTPS boundary. The observer must pass the request and response
 through without reading either body and persist only the allow-listed facts
 below.
@@ -90,41 +94,27 @@ playback remains available. Separately authorized HEAD, `Range: bytes=0-0`,
 and unsatisfiable-range probes may supplement the device evidence but must be
 identified as synthetic probes rather than Sonos behavior.
 
-## Decision after capture
+## Accepted replacement direction
 
-If the capture confirms the progressive-response mismatch, preserve the
-direct Sonos-to-Jellyfin topology if practical. The preferred design is a
-Jellyfin-side authenticated completed-transcode cache and range endpoint that:
+ADR 0002 preserves direct Sonos-to-Jellyfin delivery and changes only forced
+transcodes to an on-demand HLS track: AAC in 10-second MPEG-TS segments, with
+the master playlist and all child requests authenticated by the existing
+Sonos `httpHeaders` mechanism. It retains the no-token-in-URI and no-Cloudflare-
+audio-proxy rules. A Jellyfin completed-file endpoint, sidecar, fork,
+Cloudflare/R2 gateway, or offline MP3 derivative is not part of this decision.
 
-- writes to a temporary file and publishes atomically only after FFmpeg exits
-  successfully;
-- coalesces concurrent generation and bounds time, concurrency, file size,
-  total disk use, and retention;
-- invalidates on source or transcode-profile change;
-- serves immutable MP3 through authenticated GET and HEAD with exact length,
-  MIME, `200`/`206`/`416`, and byte-range behavior;
-- keeps the public path stable and free of credentials and private IDs;
-- preserves all existing direct-play behavior.
-
-A same-origin Jellyfin sidecar is the next choice if a plugin or upstream
-patch is impractical. A Cloudflare/R2 media gateway, custom signed media URL,
-or HLS topology is a larger trust-boundary change and requires a replacement
-playback ADR covering authentication, isolation, stable URI and header
-semantics, atomic publication, resource bounds, retention, cleanup, and
-credential exposure before implementation.
-
-Forwarding the current progressive response through a Worker does not fix its
-length or range behavior. Buffering it in Worker memory is also excluded. An
-offline MP3 derivative is a user workaround, not evidence that the required
-forced-transcode case works.
+Forwarding the old progressive response through a Worker would not fix its
+length or range behavior, and buffering it in Worker memory remains excluded.
 
 ## Completion evidence still required
 
-After the selected implementation passes focused behavior and security tests:
+After Task 8.7 passes focused behavior and security tests:
 
 - deploy only with explicit authorization;
 - repeat forced-transcode play, pause, resume, seek, and skip on the Play:1;
+- verify master, media-playlist, and segment Authorization propagation without
+  placing the Jellyfin token in any URI;
 - finish the direct MP3, AAC, and FLAC header/range/stability evidence listed
   in [`task-8-5-playback.md`](task-8-5-playback.md);
 - run `pnpm check`;
-- close Tasks 8.5 and 8.6 and Milestone 8 only when every case passes.
+- close Tasks 8.5 and 8.8 and Milestone 8 only when every case passes.

@@ -139,6 +139,45 @@ function directPlaybackInfo(): JellyfinPlaybackInfo {
   };
 }
 
+function hlsPlaybackInfo(): JellyfinPlaybackInfo {
+  return {
+    mediaSources: [
+      {
+        id: "source-id",
+        protocol: "File",
+        container: "flac",
+        bitrate: 2_852_000,
+        supportsDirectPlay: false,
+        supportsDirectStream: false,
+        supportsTranscoding: true,
+        transcodingContainer: "ts",
+        transcodingSubProtocol: "hls",
+        transcodingUrl:
+          `/audio/${TRACK_ID}/master.m3u8?DeviceId=sonofin-test-device` +
+          "&MediaSourceId=source-id&AudioCodec=aac&AudioBitrate=320000" +
+          "&AudioSampleRate=48000&SegmentContainer=ts&SegmentLength=10" +
+          "&MinSegments=1&BreakOnNonKeyFrames=False" +
+          `&PlaySessionId=session-id&ApiKey=${ACCESS_TOKEN}` +
+          "&TranscodingMaxAudioChannels=2&RequireAvc=false" +
+          "&EnableAudioVbrEncoding=false&audiochannels=2" +
+          "&allowAudioStreamCopy=false&allowVideoStreamCopy=false" +
+          "&TranscodeReasons=AudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+        requiredHttpHeaders: {},
+        audioStreams: [
+          {
+            index: 0,
+            codec: "flac",
+            channels: 2,
+            sampleRate: 96_000,
+            bitDepth: 24,
+            isDefault: true,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function sink(): SmapiLogSink {
   return { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 }
@@ -203,6 +242,41 @@ describe("getMediaURI Worker integration", () => {
     expect(jellyfin.getPlaylists).not.toHaveBeenCalled();
     expect(deps.browse.getMetadata).not.toHaveBeenCalled();
     expect(audioFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns a token-free HLS master URI for a forced transcode", async () => {
+    const getItemMetadata = vi.fn().mockResolvedValue({
+      id: TRACK_ID,
+      kind: "track",
+      name: "High-resolution track",
+      artists: [],
+      container: "flac",
+    });
+    const getPlaybackInfo = vi.fn().mockResolvedValue(hlsPlaybackInfo());
+    const response = await handleRequest(
+      soapRequest(),
+      dependencies(dataClient({ getItemMetadata, getPlaybackInfo })),
+    );
+    const body = await response.text();
+    const escapedUri = /<getMediaURIResult>([^<]+)<\/getMediaURIResult>/u
+      .exec(body)?.[1];
+    const uri = escapedUri?.replaceAll("&amp;", "&");
+
+    expect(response.status).toBe(200);
+    expect(uri).toBeDefined();
+    const url = new URL(uri!);
+    expect(url.pathname).toBe(`/jellyfin/audio/${TRACK_ID}/master.m3u8`);
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      AudioCodec: "aac",
+      SegmentContainer: "ts",
+      SegmentLength: "10",
+      MinSegments: "1",
+      BreakOnNonKeyFrames: "false",
+    });
+    expect(uri).not.toContain(ACCESS_TOKEN);
+    expect(uri).not.toMatch(/ApiKey|PlaySessionId|Tag/iu);
+    expect(body).toContain("<header>Authorization</header>");
+    expect(getPlaybackInfo).toHaveBeenCalledWith(TRACK_ID);
   });
 
   it("passes bounded optional playback parameters to the service without echoing them", async () => {

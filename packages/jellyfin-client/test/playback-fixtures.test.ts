@@ -4,8 +4,8 @@ import { JellyfinApiClient, type JellyfinDataConnection } from "../src";
 import aacDirectPlay from "./fixtures/playback/aac-direct-play.json";
 import flac24StereoTranscode from "./fixtures/playback/flac-24-96-stereo-transcode.json";
 import flacDirectPlay from "./fixtures/playback/flac-direct-play.json";
+import hlsAacTranscode from "./fixtures/playback/hls-aac-transcode.json";
 import mp3DirectPlay from "./fixtures/playback/mp3-direct-play.json";
-import mp3Transcode from "./fixtures/playback/mp3-transcode.json";
 
 const CONNECTION: JellyfinDataConnection = {
   serverUrl: "https://media.example.test/jellyfin",
@@ -59,9 +59,9 @@ const FIXTURES = [
     },
   },
   {
-    name: "high-resolution FLAC to MP3",
+    name: "high-resolution FLAC to HLS AAC",
     itemId: "40000000000000000000000000000004",
-    payload: mp3Transcode,
+    payload: hlsAacTranscode,
     expected: {
       container: "flac",
       codec: "flac",
@@ -73,7 +73,7 @@ const FIXTURES = [
     },
   },
   {
-    name: "24-bit/96-kHz stereo FLAC to MP3",
+    name: "24-bit/96-kHz stereo FLAC to HLS AAC",
     itemId: "40000000000000000000000000000005",
     payload: flac24StereoTranscode,
     expected: {
@@ -138,7 +138,7 @@ describe("Task 8.1 PlaybackInfo fixtures", () => {
       expect(source?.RequiredHttpHeaders).toEqual({});
     }
 
-    expect(mp3Transcode.MediaSources[0]?.TranscodingUrl).toContain(
+    expect(hlsAacTranscode.MediaSources[0]?.TranscodingUrl).toContain(
       "ApiKey=task-8-1-fixture-token-not-a-credential",
     );
     expect(flac24StereoTranscode.MediaSources[0]?.TranscodingUrl).toContain(
@@ -147,7 +147,7 @@ describe("Task 8.1 PlaybackInfo fixtures", () => {
   });
 
   it("rejects control characters in a transcode URL before normalization", async () => {
-    const payload = structuredClone(mp3Transcode);
+    const payload = structuredClone(hlsAacTranscode);
     const source = payload.MediaSources[0];
     if (source === undefined) {
       throw new Error("Missing fixture source");

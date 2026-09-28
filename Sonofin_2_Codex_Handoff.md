@@ -630,10 +630,18 @@ Implement:
 - Jellyfin-native stream resolution
 - authentication headers if Sonos supports required format
 - direct Sonos -> Jellyfin streaming
+- on-demand HLS AAC `track` delivery for sources that require transcoding
 
 Do NOT initially proxy media through Cloudflare.
 
 Do NOT initially implement signed playback URLs.
+
+The real-device progressive-MP3 fallback failed and stock Jellyfin 10.11.11
+cannot make that route provide the required completed length/range behavior.
+Per ADR 0002, forced transcodes use Jellyfin-native HLS AAC with 10-second
+MPEG-TS segments. Direct MP3, AAC, and conforming FLAC remain preferred. The
+HLS path must retain header authentication, token-free URLs, and the no-
+Cloudflare-audio-proxy boundary, and must pass the separate real-device gate.
 
 Test multiple formats:
 

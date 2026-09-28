@@ -1,4 +1,7 @@
 import {
+  resolveSonosPlaybackTarget,
+} from "@sonofin/jellyfin-client";
+import {
   decodeSonosContentId,
   SonosContentIdError,
   type GetMediaMetadataResult,
@@ -46,6 +49,17 @@ export class SonofinMediaMetadataService
       throw new SmapiBrowseError("item_not_found");
     }
 
-    return formatJellyfinTrackAsSonosBrowseTrack(item);
+    const playback = await request.context.jellyfin.getPlaybackInfo(
+      contentId.value,
+    );
+    const target = resolveSonosPlaybackTarget(
+      contentId.value,
+      playback,
+      request.context.connection,
+    );
+    return Object.freeze({
+      ...formatJellyfinTrackAsSonosBrowseTrack(item),
+      mimeType: target.mimeType,
+    });
   }
 }

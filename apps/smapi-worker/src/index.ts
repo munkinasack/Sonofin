@@ -357,6 +357,9 @@ function extendedMetadataErrorToSoapFault(
 }
 
 function mediaMetadataErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
+  if (error instanceof JellyfinPlaybackTargetError) {
+    return NO_COMPATIBLE_STREAM_FAULT;
+  }
   if (!(error instanceof SmapiBrowseError)) {
     return mapJellyfinErrorToSoapFault(error);
   }

@@ -13,8 +13,8 @@ import {
 import aacFixture from "./fixtures/playback/aac-direct-play.json";
 import flac24StereoFixture from "./fixtures/playback/flac-24-96-stereo-transcode.json";
 import flacFixture from "./fixtures/playback/flac-direct-play.json";
+import hlsTranscodeFixture from "./fixtures/playback/hls-aac-transcode.json";
 import mp3Fixture from "./fixtures/playback/mp3-direct-play.json";
-import transcodeFixture from "./fixtures/playback/mp3-transcode.json";
 
 const CONNECTION: JellyfinDataConnection = {
   serverUrl: "https://media.example.test/jellyfin",
@@ -101,16 +101,16 @@ describe("Sonos playback target resolver", () => {
     expect(target.url).not.toContain(CONNECTION.accessToken);
   });
 
-  it("strips credentials and session fields from the MP3 fixture with stable retries", async () => {
-    const playback = await parseFixture(transcodeFixture, IDS[3]);
+  it("strips credentials and session fields from the HLS fixture with stable retries", async () => {
+    const playback = await parseFixture(hlsTranscodeFixture, IDS[3]);
     const first = resolveSonosPlaybackTarget(IDS[3], playback, CONNECTION);
     const second = resolveSonosPlaybackTarget(IDS[3], playback, CONNECTION);
 
     expect(first).toEqual(second);
     expect(first.method).toBe("transcode");
-    expect(first.mimeType).toBe("audio/mpeg");
+    expect(first.mimeType).toBe("application/vnd.apple.mpegurl");
     expect(first.url).toMatch(
-      /^https:\/\/media\.example\.test\/jellyfin\/audio\/40000000000000000000000000000004\/stream\.mp3\?/u,
+      /^https:\/\/media\.example\.test\/jellyfin\/audio\/40000000000000000000000000000004\/master\.m3u8\?/u,
     );
     expect(first.url).not.toMatch(/ApiKey|PlaySessionId|Tag|token-not-a-credential/iu);
     expect(first.httpHeaders).toHaveLength(1);
@@ -124,7 +124,7 @@ describe("Sonos playback target resolver", () => {
     }), CONNECTION)).toEqual(first);
   });
 
-  it("resolves 24-bit/96-kHz stereo FLAC to a safe MP3 transcode target", async () => {
+  it("resolves 24-bit/96-kHz stereo FLAC to a safe HLS AAC target", async () => {
     const itemId = IDS[4];
     const playback = await parseFixture(flac24StereoFixture, itemId);
     expect(playback.mediaSources[0]?.audioStreams[0]).toMatchObject({
@@ -134,23 +134,26 @@ describe("Sonos playback target resolver", () => {
       bitDepth: 24,
     });
     expect(playback.mediaSources[0]?.transcodingUrl).toContain(
-      "/audio/40000000-0000-0000-0000-000000000005/stream.mp3",
+      "/audio/40000000-0000-0000-0000-000000000005/master.m3u8",
     );
 
     const target = resolveSonosPlaybackTarget(itemId, playback, CONNECTION);
     const url = new URL(target.url);
     expect(target.method).toBe("transcode");
-    expect(target.mimeType).toBe("audio/mpeg");
+    expect(target.mimeType).toBe("application/vnd.apple.mpegurl");
     expect(url.origin).toBe("https://media.example.test");
-    expect(url.pathname).toBe(`/jellyfin/audio/${itemId}/stream.mp3`);
+    expect(url.pathname).toBe(`/jellyfin/audio/${itemId}/master.m3u8`);
     expect(Object.fromEntries(url.searchParams)).toEqual({
       DeviceId: CONNECTION.deviceId,
       MediaSourceId: playback.mediaSources[0]?.id,
-      AudioCodec: "mp3",
+      AudioCodec: "aac",
       AudioBitrate: "320000",
       AudioSampleRate: "48000",
+      SegmentContainer: "ts",
+      SegmentLength: "10",
+      MinSegments: "1",
+      BreakOnNonKeyFrames: "false",
       TranscodingMaxAudioChannels: "2",
-      EstimateContentLength: "true",
       RequireAvc: "false",
       EnableAudioVbrEncoding: "false",
       audiochannels: "2",
@@ -187,7 +190,7 @@ describe("Sonos playback target resolver", () => {
       transcodingUrl: raw.replace(dForm, letterDForm),
     }), CONNECTION);
     expect(new URL(caseTarget.url).pathname).toBe(
-      `/jellyfin/audio/${letterNForm}/stream.mp3`,
+      `/jellyfin/audio/${letterNForm}/master.m3u8`,
     );
 
     for (const [pathId, failure] of [
@@ -214,7 +217,7 @@ describe("Sonos playback target resolver", () => {
   });
 
   it("normalizes application-root, base-prefixed, and same-origin absolute transcode paths", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const expected = resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION);
     for (const prefix of [
       "/jellyfin",
@@ -228,12 +231,11 @@ describe("Sonos playback target resolver", () => {
     }
   });
 
-  it("accepts Jellyfin Boolean casing and omitted audio stream index", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+  it("canonicalizes Jellyfin HLS Boolean casing and an omitted audio stream index", async () => {
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const original = resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION);
     const transcodingUrl = source.transcodingUrl!
       .replace("AudioStreamIndex=0&", "")
-      .replace("EstimateContentLength=true", "EstimateContentLength=True")
       .replaceAll("=false", "=False");
     const target = resolveSonosPlaybackTarget(
       IDS[3],
@@ -242,14 +244,14 @@ describe("Sonos playback target resolver", () => {
     );
     expect(target.method).toBe("transcode");
     expect(target.url).not.toContain("AudioStreamIndex");
-    expect(target.url).toContain("EstimateContentLength=true");
+    expect(target.url).toContain("BreakOnNonKeyFrames=false");
     expect(target.url).toContain("RequireAvc=false");
     expect(target.url).not.toMatch(/=(?:True|False)(?:&|$)/u);
     expect(target.url).toBe(original.url.replace("AudioStreamIndex=0&", ""));
   });
 
   it("accepts only one bounded audio channel option", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const raw = source.transcodingUrl!;
     expect(resolveSonosPlaybackTarget(IDS[3], oneSource(source), CONNECTION).method)
       .toBe("transcode");
@@ -259,20 +261,20 @@ describe("Sonos playback target resolver", () => {
     }))).toBe("playback_transcode_query_audio");
     expect(failureOf(IDS[3], oneSource({
       ...source,
-      transcodingUrl: raw.replace("mp3-audiochannels=2", "audiochannels=3"),
+      transcodingUrl: raw.replace("aac-audiochannels=2", "audiochannels=3"),
     }))).toBe("playback_transcode_query_audio");
   });
 
   it("classifies source, profile, URL, and query failures without upstream values", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const raw = source.transcodingUrl!;
     const cases = [
       [{ mediaSources: [] }, "playback_no_media_sources"],
       [{ errorCode: "upstream-secret", mediaSources: [source] }, "playback_info_error"],
       [oneSource({ ...source, audioStreams: [] }), "playback_source_metadata"],
-      [oneSource({ ...source, transcodingContainer: "aac" }), "playback_transcode_profile"],
+      [oneSource({ ...source, transcodingContainer: "mp3" }), "playback_transcode_profile"],
       [oneSource({ ...source, transcodingUrl: "" }), "playback_transcode_url_missing"],
-      [oneSource({ ...source, transcodingUrl: `audio/${IDS[3]}/stream.mp3` }), "playback_transcode_url_malformed"],
+      [oneSource({ ...source, transcodingUrl: `audio/${IDS[3]}/master.m3u8` }), "playback_transcode_url_malformed"],
       [oneSource({ ...source, transcodingUrl: raw.replace("/audio/", "/%2e%2e/audio/") }), "playback_transcode_url_unsafe_path"],
       [oneSource({ ...source, transcodingUrl: `http://media.example.test${raw}` }), "playback_transcode_url_insecure_scheme"],
       [oneSource({ ...source, transcodingUrl: `https://elsewhere.example.test/jellyfin${raw}` }), "playback_transcode_url_origin"],
@@ -282,7 +284,7 @@ describe("Sonos playback target resolver", () => {
       [oneSource({ ...source, transcodingUrl: `${raw}&Unknown=private-value` }), "playback_transcode_query_shape"],
       [oneSource({ ...source, transcodingUrl: raw.replace("AudioStreamIndex=0", "AudioStreamIndex=1") }), "playback_transcode_query_binding"],
       [oneSource({ ...source, transcodingUrl: raw.replace("AudioSampleRate=48000", "AudioSampleRate=96000") }), "playback_transcode_query_audio"],
-      [oneSource({ ...source, transcodingUrl: raw.replace("EstimateContentLength=true", "EstimateContentLength=TRUE") }), "playback_transcode_query_options"],
+      [oneSource({ ...source, transcodingUrl: raw.replace("BreakOnNonKeyFrames=False", "BreakOnNonKeyFrames=True") }), "playback_transcode_query_options"],
     ] as const;
     for (const [playback, failure] of cases) {
       expect(failureOf(IDS[3], playback)).toBe(failure);
@@ -294,7 +296,7 @@ describe("Sonos playback target resolver", () => {
 
   it("ranks direct play, File transcodes, then source IDs independently of response order", async () => {
     const direct = (await parseFixture(mp3Fixture, IDS[0])).mediaSources[0]!;
-    const transcode = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const transcode = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const directB: JellyfinMediaSource = { ...direct, id: "b-source" };
     const directA: JellyfinMediaSource = { ...direct, id: "a-source" };
     const playback = { mediaSources: [transcode, directB, directA] };
@@ -333,7 +335,7 @@ describe("Sonos playback target resolver", () => {
 
   it("never places the connection token in an item, source, device, or base URL", async () => {
     const direct = (await parseFixture(mp3Fixture, IDS[0])).mediaSources[0]!;
-    const transcode = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const transcode = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const token = CONNECTION.accessToken;
     failNoStream(IDS[0], oneSource({ ...direct, id: token }));
     failNoStream(token, oneSource(direct));
@@ -420,24 +422,24 @@ describe("Sonos playback target resolver", () => {
   });
 
   it("rejects hostile path forms before URL normalization", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const raw = source.transcodingUrl!;
     const query = raw.slice(raw.indexOf("?"));
     const hostile = [
-      `https://evil.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `https://media.example.test:444/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `http://media.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `//media.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `/jellyfin2/audio/${IDS[3]}/stream.mp3${query}`,
-      `/audio/../audio/${IDS[3]}/stream.mp3${query}`,
-      `/audio/%2e%2e/audio/${IDS[3]}/stream.mp3${query}`,
-      `/audio/%2F${IDS[3]}/stream.mp3${query}`,
-      `/audio/%255C${IDS[3]}/stream.mp3${query}`,
-      `/audio\\${IDS[3]}/stream.mp3${query}`,
-      `/audio/${IDS[3]}/stream.mp3${query}#fragment`,
-      `https://user:password@media.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `https://@media.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
-      `https://:@media.example.test/jellyfin/audio/${IDS[3]}/stream.mp3${query}`,
+      `https://evil.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `https://media.example.test:444/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `http://media.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `//media.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `/jellyfin2/audio/${IDS[3]}/master.m3u8${query}`,
+      `/audio/../audio/${IDS[3]}/master.m3u8${query}`,
+      `/audio/%2e%2e/audio/${IDS[3]}/master.m3u8${query}`,
+      `/audio/%2F${IDS[3]}/master.m3u8${query}`,
+      `/audio/%255C${IDS[3]}/master.m3u8${query}`,
+      `/audio\\${IDS[3]}/master.m3u8${query}`,
+      `/audio/${IDS[3]}/master.m3u8${query}#fragment`,
+      `https://user:password@media.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `https://@media.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
+      `https://:@media.example.test/jellyfin/audio/${IDS[3]}/master.m3u8${query}`,
     ];
     for (const transcodingUrl of hostile) {
       failNoStream(IDS[3], oneSource({ ...source, transcodingUrl }));
@@ -445,13 +447,14 @@ describe("Sonos playback target resolver", () => {
   });
 
   it("rejects unknown, duplicate, credential-like, malformed, and unsafe query fields", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     const raw = source.transcodingUrl!;
     const hostile = [
       `${raw}&ApiKey=duplicate`,
       `${raw}&%41piKey=duplicate`,
       `${raw}&api_key=another`,
       `${raw}&Authorization=secret`,
+      `${raw}&EstimateContentLength=true`,
       `${raw}&Unknown=1`,
       `${raw}&MediaSourceId=duplicate`,
       `${raw}&Tag=%0d%0aInjected`,
@@ -459,11 +462,11 @@ describe("Sonos playback target resolver", () => {
       raw.replace("AudioBitrate=320000", "AudioBitrate=320001"),
       raw.replace("AudioSampleRate=48000", "AudioSampleRate=96000"),
       raw.replace("TranscodingMaxAudioChannels=2", "TranscodingMaxAudioChannels=6"),
-      raw.replace("AudioCodec=mp3", "AudioCodec=aac"),
+      raw.replace("AudioCodec=aac", "AudioCodec=mp3"),
       raw.replace("AudioStreamIndex=0", "AudioStreamIndex=1"),
       raw.replace("MediaSourceId=90000000000000000000000000000004", "MediaSourceId=wrong"),
       raw.replace("ApiKey=task-8-1-fixture-token-not-a-credential", "ApiKey=wrong"),
-      raw.replace("EstimateContentLength=true", "EstimateContentLength=false"),
+      raw.replace("SegmentLength=10", "SegmentLength=9"),
       raw.replace("TranscodeReasons=AudioChannelsNotSupported", "TranscodeReasons=UnknownReason"),
     ];
     for (const transcodingUrl of hostile) {
@@ -472,11 +475,11 @@ describe("Sonos playback target resolver", () => {
   });
 
   it("rejects missing or incompatible negotiated results without leaking values", async () => {
-    const source = (await parseFixture(transcodeFixture, IDS[3])).mediaSources[0]!;
+    const source = (await parseFixture(hlsTranscodeFixture, IDS[3])).mediaSources[0]!;
     failNoStream(IDS[3], { mediaSources: [] });
     failNoStream(IDS[3], { errorCode: "NoCompatibleStream", mediaSources: [source] });
-    failNoStream(IDS[3], oneSource({ ...source, transcodingContainer: "aac" }));
-    failNoStream(IDS[3], oneSource({ ...source, transcodingSubProtocol: "hls" }));
+    failNoStream(IDS[3], oneSource({ ...source, transcodingContainer: "mp3" }));
+    failNoStream(IDS[3], oneSource({ ...source, transcodingSubProtocol: "http" }));
     failNoStream(IDS[3], oneSource({ ...source, supportsTranscoding: false }));
     failNoStream(IDS[3], oneSource({
       ...source,
