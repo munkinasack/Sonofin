@@ -11,10 +11,12 @@ The broad milestone goals in the handoff remain authoritative product scope.
 The numbered tasks below are authoritative for execution order and task
 boundaries. A whole remaining milestone must not be assigned as one Codex task.
 
-The plan contains the original 36 primary runs, five Milestone 8A runs, and
-seven Milestone 10A runs.
-Staging and production deployment gates remain externally authorized
-operations, not implied actions.
+The plan retains the original bounded execution sequence and adds narrowly
+scoped defect tasks when real-system evidence changes a protocol decision.
+Tasks 8.6–8.8 replace the failed progressive-MP3 fallback with an investigated,
+implemented, and separately hardware-verified HLS AAC path. Staging and
+production deployment gates remain externally authorized operations, not
+implied actions.
 
 ## Required Codex preset
 
@@ -32,6 +34,11 @@ minutes is a hard reserve for a full verification pass and a small repair. If
 new contract work would consume that reserve, finish the current coherent
 slice, keep the repository green, and insert a new narrowly scoped task rather
 than expanding the current task.
+
+There is no fixed token count that can safely be treated as a universal Codex
+limit. Ultra reasoning can consume more reasoning tokens and time on hard
+steps, so these packets are bounded by one coherent artifact, focused tests,
+and a hard verification reserve rather than by a guessed prompt/token total.
 
 Ultra may use subagents for independent protocol research, test-gap analysis,
 or review. Keep one primary writer unless files are cleanly disjoint; shared
@@ -81,7 +88,7 @@ the repository green and describe the smallest follow-up task required.
 
 ## External-entry gates
 
-Tasks 7.9, 8.5, 8A.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
+Tasks 7.9, 8.5, 8.8, 8A.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
 repository. Do not start their five-hour clocks until the listed server,
 hardware, account, domain, test media, and secrets are ready. Planning these
 tasks does not authorize a staging or production deployment. Tasks 10A.7,
@@ -92,7 +99,7 @@ tasks does not authorize a staging or production deployment. Tasks 10A.7,
 Use the task order within each milestone. The cross-milestone critical path is:
 
 ```text
-7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5
+7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5 -> 8.6 -> 8.7 -> 8.8
     -> 8A.1 ... 8A.5 -> 9.1 -> 9.2 -> 10.1 ... 10.6 -> 10A.1 ... 10A.7
     -> 11.1 ... 11.6 -> 12.1 ... 12.6
 ```
@@ -402,9 +409,9 @@ dry-run builds for both Workers. Task 7.9 remains open.
 
 Milestone exit: Sonos obtains track metadata and a safe Jellyfin-native media
 URI, sends required allow-listed HTTP headers, and streams directly from
-Jellyfin. MP3, AAC, FLAC, and at least one negotiated-transcode case have
-credential-free compatibility evidence. Cloudflare does not proxy audio and no
-Jellyfin token appears in a URI.
+Jellyfin. Direct MP3, AAC, and FLAC plus at least one HLS AAC forced-transcode
+case have credential-free compatibility evidence. Cloudflare does not proxy
+audio and no Jellyfin token appears in a URI.
 
 ### [x] Task 8.1 — Playback contract and security decision
 
@@ -510,6 +517,97 @@ hardware plus known MP3, AAC, FLAC, and forced-transcode fixtures.
   method, and result without recording credentials or private server details.
 - Fix only bounded defects; split larger compatibility failures. Mark Milestone
   8 complete only when required playback cases succeed and `pnpm check` passes.
+
+**Live status, 2026-09-20:** MP3, AAC-LC, and 16-bit FLAC played on a Play:1
+with pause, resume, seek, and skip. A 24-bit/96-kHz FLAC negotiated to MP3
+and briefly made sound, then Sonos stopped with an encoding error. The
+FFmpeg log shows MP3 output without an encoding error. Stock Jellyfin
+10.11.11's progressive transcode response disables byte ranges and uses a
+nonseekable stream; this is a strong compatibility hypothesis pending live
+request/response header capture. See
+[`docs/verification/task-8-5-playback.md`](docs/verification/task-8-5-playback.md).
+Task 8.5 remains open. Task 8.6 rejected the progressive delivery path, Task
+8.7 implements HLS AAC, and Task 8.8 owns the replacement real-device gate.
+
+### [x] Task 8.6 — Progressive-MP3 feasibility investigation
+
+**Budget:** 2.5–4 hours. **Prerequisite:** Task 8.5's initial real-device
+evidence.
+
+**Status:** complete. Source review found no supported stock Jellyfin 10.11.11
+path for a completed, range-capable MP3 transcode. Product direction selected
+Sonos HLS track delivery instead of extending this rejected topology. See
+[`docs/verification/task-8-6-transcode-delivery.md`](docs/verification/task-8-6-transcode-delivery.md).
+
+- Prove from Jellyfin 10.11.11 source that `EstimateContentLength`, seek-info
+  settings, and `static=true` cannot provide a completed, range-capable MP3
+  transcode through the existing route.
+- Record a credential-safe capture procedure in case the precise historical
+  player failure still needs diagnosis, without making that capture a gate for
+  rejecting the already non-conforming progressive contract.
+- Require a replacement ADR before any alternate delivery topology is
+  implemented. Do not add a Cloudflare audio proxy or Jellyfin fork implicitly.
+
+**Evidence:** the source-backed investigation identifies the non-seekable
+progressive handler, missing length/range contract, original-file behavior of
+`static=true`, and the security requirements for any replacement. ADR 0002 is
+the separately accepted HLS replacement decision.
+
+### [x] Task 8.7 — HLS AAC forced-transcode contract and implementation
+
+**Budget:** 3.5–4.5 hours. **Prerequisite:** 8.6.
+
+- Add a replacement playback ADR for on-demand HLS `track` delivery. Pin the
+  Jellyfin 10.11.11 route, AAC limits, MPEG-TS container, 10-second segment
+  policy, MIME type, Authorization propagation assumption, and explicit
+  rejection of query credentials, live `stream` semantics, and a Cloudflare
+  audio proxy.
+- Change only the forced-transcode profile to HLS AAC; retain conforming direct
+  MP3, AAC, and FLAC. Remove `EstimateContentLength` and validate the exact HLS
+  master path and segment-query contract with the existing HTTPS, origin,
+  base-path, credential-removal, and retry-stability protections.
+- Make `getMediaMetadata` advertise the MIME type selected by the same playback
+  negotiation used by `getMediaURI`, so an HLS fallback remains a Sonos track
+  with `application/vnd.apple.mpegurl` while direct targets keep their audio
+  MIME.
+- Replace the progressive fixture with synthetic HLS PlaybackInfo evidence and
+  add focused profile, resolver, metadata, failure, redaction, and integration
+  tests. Run `pnpm check`; do not deploy or claim real-player compatibility.
+
+**Stop rule:** if Jellyfin 10.11.11 does not return the pinned HLS shape, keep
+the repository green and revise the ADR/fixture in a new narrow compatibility
+task. Do not widen the URL allow-list from guesswork.
+
+**Evidence:** ADR 0002 records the replacement topology and real-device gates.
+The profile, strict HLS resolver, negotiated `getMediaMetadata` MIME, synthetic
+fixtures, fixed fault mapping, token removal, retry behavior, and Worker
+serialization have focused coverage. The full repository check passed with 32
+test files and 809 unit/cross-Worker tests, seven isolated real-D1 tests, and
+dry-run builds for both Workers. No deployment or real-player HLS claim is part
+of this task.
+
+### [ ] Task 8.8 — Real HLS AAC and playback matrix verification
+
+**Budget:** 2–4.5 hours. **Prerequisite:** 8.7, ready Jellyfin 10.11.11 and
+Sonos hardware, the existing four media fixtures, and an explicitly authorized
+SMAPI deployment. **External-entry gate.**
+
+- Confirm real `PlaybackInfo` returns the pinned audio master route, HLS
+  subprotocol, AAC codec, MPEG-TS container, and 10-second segment fields before
+  deploying. Record only credential-free classifications.
+- On the real Sonos player, verify `application/vnd.apple.mpegurl` metadata,
+  master and media playlist retrieval, AAC-in-MPEG-TS segments, first playable
+  audio within the Sonos HLS timeout, and play, pause, resume, seek, skip, and
+  replay of the forced-transcode fixture.
+- Prove that Sonos sends the constructed Authorization header to the master,
+  media playlist, and segment routes and that no playlist or segment URL
+  contains a token. If headers are not propagated, stop and add a new security
+  decision task; do not put a Jellyfin token in a query string.
+- Re-run direct MP3, AAC-LC, and 16-bit FLAC to catch regressions. Record HLS
+  response media types, segment completion/length behavior, retry stability,
+  and any concurrent-segment failure without storing URLs or identifiers.
+- Run `pnpm check`, update Task 8.5 evidence, and close Tasks 8.5 and 8.8 and
+  Milestone 8 only when every required direct and HLS case passes.
 
 ## Milestone 8A — Authenticated artwork
 

@@ -357,6 +357,9 @@ function extendedMetadataErrorToSoapFault(
 }
 
 function mediaMetadataErrorToSoapFault(error: unknown): SmapiSafeSoapFault {
+  if (error instanceof JellyfinPlaybackTargetError) {
+    return NO_COMPATIBLE_STREAM_FAULT;
+  }
   if (!(error instanceof SmapiBrowseError)) {
     return mapJellyfinErrorToSoapFault(error);
   }
@@ -468,6 +471,31 @@ function itemNotFoundDiagnostics(
 function classifyInternalErrorOrigin(
   error: unknown,
 ): SmapiInternalErrorOrigin {
+  if (error instanceof JellyfinPlaybackTargetError) {
+    switch (error.failure) {
+      case "playback_info_error":
+      case "playback_no_media_sources":
+      case "playback_credential_conflict":
+      case "playback_source_metadata":
+      case "playback_transcode_profile":
+      case "playback_transcode_url_missing":
+      case "playback_transcode_url_malformed":
+      case "playback_transcode_url_unsafe_path":
+      case "playback_transcode_url_insecure_scheme":
+      case "playback_transcode_url_origin":
+      case "playback_transcode_url_base_path":
+      case "playback_transcode_url_route":
+      case "playback_transcode_url_too_long":
+      case "playback_transcode_query_shape":
+      case "playback_transcode_query_binding":
+      case "playback_transcode_query_audio":
+      case "playback_transcode_query_options":
+        return error.failure;
+      default:
+        return "playback_no_compatible_stream";
+    }
+  }
+
   if (error instanceof SmapiResponseSerializationError) {
     return "serialization";
   }

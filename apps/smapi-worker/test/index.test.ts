@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   JellyfinClientError,
+  JellyfinPlaybackTargetError,
   type JellyfinConnection,
   type JellyfinDataClient,
   type JellyfinTrack,
@@ -1406,6 +1407,28 @@ describe("SMAPI Worker", () => {
       );
     },
   );
+
+  it("maps getMediaMetadata playback incompatibility to the fixed stream fault", async () => {
+    const response = await handleRequest(
+      makeSoapRequest("getMediaMetadata", {
+        parameters: TRACK_MEDIA_METADATA_PARAMETERS,
+      }),
+      createDependencies({
+        mediaMetadata: {
+          getMediaMetadata: vi
+            .fn()
+            .mockRejectedValue(
+              new JellyfinPlaybackTargetError("playback_transcode_profile"),
+            ),
+        },
+      }),
+    );
+
+    const body = await response.text();
+    expect(response.status).toBe(500);
+    expect(body).toContain("No compatible audio stream is available");
+    expect(body).not.toContain("playback_transcode_profile");
+  });
 
   it("classifies and redacts getMediaMetadata item failures", async () => {
     const sourceId = "private-media-track-id";

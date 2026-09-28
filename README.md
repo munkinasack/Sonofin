@@ -9,7 +9,7 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6, Tasks
-7.1–7.8c, and Tasks 8.1, 8.3, and 8.4 of the playback milestone**: browser
+7.1–7.8c, and Tasks 8.1, 8.3, 8.4, 8.6, and 8.7 of the playback milestone**: browser
 onboarding ends with a separate, durable Sonos-facing credential, the Jellyfin
 package provides the reusable authenticated music-data layer, and the SMAPI
 Worker resolves each authenticated Sonos mapping into a request-scoped Jellyfin
@@ -20,14 +20,18 @@ search contract, the mandatory metadata methods, and a globally deterministic
 30-second catalog refresh signal. The Jellyfin client now resolves safe,
 deterministic playback targets. The SMAPI Worker now returns a validated
 Jellyfin media URI and an Authorization header for direct player streaming.
+Conforming files remain direct-play targets; forced transcodes now negotiate
+to on-demand HLS AAC instead of progressive MP3.
 
 Task 7.9 real-system verification is in progress; Milestone 8 compatibility
-Task 8.5, the new authenticated-artwork Milestone 8A, Milestones 9–12, and
-Service Bindings Milestone 10A remain future work.
+Tasks 8.5 and 8.8, the new authenticated-artwork Milestone 8A, Milestones
+9–12, and Service Bindings Milestone 10A remain future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Playback through the new media URI
-route and `getMediaMetadata` still need real Sonos validation in Task 8.5.
+route has passed direct MP3, AAC-LC, and 16-bit FLAC playback on the real Sonos
+device. The HLS AAC forced-transcode replacement still needs Task 8.8 hardware
+validation before Milestone 8 can close.
 Active and idle desktop/iPhone browse trials also generated no
 `getLastUpdate` call, so the real-app refresh cadence and cache-refresh gate
 remain open. The remaining product goals are in
@@ -36,6 +40,35 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 8.7 adds
+
+- [ADR 0002](docs/adr/0002-hls-aac-forced-transcodes.md) replaces only the
+  failed progressive-MP3 fallback with an on-demand Sonos HLS track: AAC at no
+  more than 320 kbps, 48 kHz, and two channels in 10-second MPEG-TS segments.
+  Direct MP3, AAC, and conforming FLAC remain preferred.
+- The Jellyfin device profile now requests `hls`/`ts`/`aac`; it no longer sends
+  `EstimateContentLength`. The resolver accepts only the pinned
+  `/audio/{itemId}/master.m3u8` route and exact segment options, removes the
+  verified query token and request-specific fields, and returns
+  `application/vnd.apple.mpegurl` with the existing Authorization header.
+- `getMediaMetadata` now performs playback negotiation and advertises the MIME
+  type of the selected target. A direct file keeps its audio MIME, while a
+  forced transcode remains `itemType=track` and advertises the HLS media type.
+- Synthetic fixtures and focused tests cover HLS negotiation, strict URL/query
+  normalization, stable retries, metadata MIME, fixed faults, and credential
+  removal. Cloudflare still does not fetch or proxy audio.
+
+## What Task 8.6 establishes
+
+- Stock Jellyfin 10.11.11 has no supported option that turns its progressive
+  MP3 transcode into a completed, byte-range-capable response.
+  `EstimateContentLength` only affects generated URL state; `static=true`
+  returns the original source.
+- The source-backed result rejects more progressive-query tuning as a solution
+  and requires a replacement delivery ADR. The optional credential-safe
+  historical capture remains documented, but it no longer blocks the distinct
+  HLS path.
 
 ## What Task 8.4 adds
 
@@ -54,10 +87,11 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
 
 - The Jellyfin client sends the fixed Sonos `DeviceProfile` and negotiation
   settings from the playback ADR in every `PlaybackInfo` request.
-- An exported resolver selects a direct-play or progressive-MP3 transcode
-  target using the validated audio stream, local format limits, deterministic
-  source ranking, and a fixed MIME mapping. Distinct direct-stream output stays
-  disabled by the accepted contract.
+- An exported resolver originally selected a direct-play or progressive-MP3
+  transcode target using the validated audio stream, local format limits,
+  deterministic source ranking, and a fixed MIME mapping. Task 8.7 replaces
+  only that progressive fallback with HLS AAC. Distinct direct-stream output
+  stays disabled by the accepted contract.
 - Direct URLs are constructed from the configured HTTPS Jellyfin base URL.
   Transcode URLs are checked for exact origin and base-path containment, safe
   path and query fields, and stable retry output. Generated query credentials
@@ -74,8 +108,9 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   [Sonos-to-Jellyfin playback ADR](docs/adr/0001-sonos-jellyfin-playback.md)
   fixes the direct Sonos-to-Jellyfin topology, the Jellyfin 10.11.11
   `DeviceProfile`, deterministic source selection, direct-play URL shape,
-  progressive-MP3 fallback, and exact MIME policy. Cloudflare negotiates the
-  target but never proxies audio.
+  original progressive-MP3 fallback, and exact MIME policy. ADR 0002 now
+  supersedes the fallback with HLS AAC. Cloudflare negotiates the target but
+  never proxies audio.
 - Playback URLs must be HTTPS, same-origin, and confined to the configured
   Jellyfin base path. Jellyfin's raw `TranscodingUrl` is treated as hostile:
   the generated `ApiKey` is verified and removed, all other credential-like or
@@ -86,7 +121,7 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   Sonos `httpHeaders`; query credentials, arbitrary headers, redirects, custom
   signed URLs, and a Worker audio proxy are prohibited.
 - Sanitized full PlaybackInfo fixtures cover MP3, AAC-in-M4A, 16-bit FLAC, and
-  24-bit/96-kHz FLAC negotiated to MP3. They contain only synthetic IDs and a
+  24-bit/96-kHz FLAC negotiated to HLS AAC. They contain only synthetic IDs and a
   conspicuously fake query-token marker, and the Jellyfin client test suite
   parses all four.
 - This task is contract and fixture work only. No production `getMediaURI`

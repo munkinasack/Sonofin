@@ -7,7 +7,7 @@
       "Type": "Default",
       "Container": "flac",
       "Size": 97200000,
-      "Name": "Task 8.1 MP3 transcode fixture",
+      "Name": "Task 8.7 HLS AAC transcode fixture",
       "IsRemote": false,
       "RunTimeTicks": 1800000000,
       "SupportsTranscoding": true,
@@ -29,9 +29,9 @@
       ],
       "Bitrate": 4320000,
       "RequiredHttpHeaders": {},
-      "TranscodingUrl": "/audio/40000000000000000000000000000004/stream.mp3?&DeviceId=sonofin-task-8-1-fixture&MediaSourceId=90000000000000000000000000000004&AudioCodec=mp3&AudioStreamIndex=0&AudioBitrate=320000&AudioSampleRate=48000&PlaySessionId=44444444444444444444444444444444&ApiKey=task-8-1-fixture-token-not-a-credential&TranscodingMaxAudioChannels=2&EstimateContentLength=true&RequireAvc=false&EnableAudioVbrEncoding=false&mp3-audiochannels=2&allowAudioStreamCopy=false&allowVideoStreamCopy=false&TranscodeReasons=AudioChannelsNotSupported%2CAudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
-      "TranscodingSubProtocol": "http",
-      "TranscodingContainer": "mp3",
+      "TranscodingUrl": "/audio/40000000000000000000000000000004/master.m3u8?&DeviceId=sonofin-task-8-1-fixture&MediaSourceId=90000000000000000000000000000004&AudioCodec=aac&AudioStreamIndex=0&AudioBitrate=320000&AudioSampleRate=48000&SegmentContainer=ts&SegmentLength=10&MinSegments=1&BreakOnNonKeyFrames=False&PlaySessionId=44444444444444444444444444444444&ApiKey=task-8-1-fixture-token-not-a-credential&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=false&aac-audiochannels=2&allowAudioStreamCopy=false&allowVideoStreamCopy=false&TranscodeReasons=AudioChannelsNotSupported%2CAudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+      "TranscodingSubProtocol": "hls",
+      "TranscodingContainer": "ts",
       "DefaultAudioStreamIndex": 0
     }
   ]

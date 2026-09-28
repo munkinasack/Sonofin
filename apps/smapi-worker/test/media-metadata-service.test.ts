@@ -5,6 +5,7 @@ import {
   type JellyfinConnection,
   type JellyfinDataClient,
   type JellyfinItemMetadata,
+  type JellyfinPlaybackInfo,
 } from "@sonofin/jellyfin-client";
 import { encodeSonosContentId } from "@sonofin/sonos-smapi";
 
@@ -47,6 +48,63 @@ function request(
   return { context: context(methods), id };
 }
 
+function directPlaybackInfo(): JellyfinPlaybackInfo {
+  return {
+    mediaSources: [{
+      id: "source-id",
+      protocol: "File",
+      container: "flac",
+      bitrate: 1_000_000,
+      supportsDirectPlay: true,
+      supportsDirectStream: false,
+      supportsTranscoding: true,
+      requiredHttpHeaders: {},
+      audioStreams: [{
+        index: 0,
+        codec: "flac",
+        channels: 2,
+        sampleRate: 48_000,
+        bitDepth: 16,
+        isDefault: true,
+      }],
+    }],
+  };
+}
+
+function hlsPlaybackInfo(): JellyfinPlaybackInfo {
+  return {
+    mediaSources: [{
+      id: "source-id",
+      protocol: "File",
+      container: "flac",
+      bitrate: 2_852_000,
+      supportsDirectPlay: false,
+      supportsDirectStream: false,
+      supportsTranscoding: true,
+      transcodingContainer: "ts",
+      transcodingSubProtocol: "hls",
+      transcodingUrl:
+        "/audio/track-id/master.m3u8?DeviceId=test-device&MediaSourceId=source-id" +
+        "&AudioCodec=aac&AudioBitrate=320000&AudioSampleRate=48000" +
+        "&SegmentContainer=ts&SegmentLength=10&MinSegments=1" +
+        "&BreakOnNonKeyFrames=False&ApiKey=test-token" +
+        "&TranscodingMaxAudioChannels=2&RequireAvc=false" +
+        "&EnableAudioVbrEncoding=false&audiochannels=2" +
+        "&allowAudioStreamCopy=false&allowVideoStreamCopy=false" +
+        "&TranscodeReasons=AudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+      requiredHttpHeaders: {},
+      audioStreams: [{
+        index: 0,
+        codec: "flac",
+        channels: 2,
+        sampleRate: 96_000,
+        bitDepth: 24,
+        isDefault: true,
+      }],
+    }],
+  };
+}
+
 describe("SonofinMediaMetadataService", () => {
   it("loads a track and returns the browse-consistent playable metadata", async () => {
     const item = {
@@ -61,13 +119,15 @@ describe("SonofinMediaMetadataService", () => {
       trackNumber: 7,
     };
     const getItemMetadata = vi.fn().mockResolvedValue(item);
+    const getPlaybackInfo = vi.fn().mockResolvedValue(directPlaybackInfo());
     const id = encodeSonosContentId({ kind: "track", value: item.id });
 
     const result = await new SonofinMediaMetadataService().getMediaMetadata(
-      request(id, { getItemMetadata }),
+      request(id, { getItemMetadata, getPlaybackInfo }),
     );
 
     expect(getItemMetadata).toHaveBeenCalledWith(item.id);
+    expect(getPlaybackInfo).toHaveBeenCalledWith(item.id);
     expect(result).toEqual({
       id,
       itemType: "track",
@@ -90,6 +150,31 @@ describe("SonofinMediaMetadataService", () => {
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.trackMetadata)).toBe(true);
+  });
+
+  it("advertises the negotiated HLS media type for a forced transcode", async () => {
+    const item = {
+      artists: [],
+      container: "flac",
+      durationMs: 216_000,
+      id: "track-id",
+      kind: "track" as const,
+      name: "High-resolution track",
+    };
+    const getItemMetadata = vi.fn().mockResolvedValue(item);
+    const getPlaybackInfo = vi.fn().mockResolvedValue(hlsPlaybackInfo());
+
+    const result = await new SonofinMediaMetadataService().getMediaMetadata(
+      request(
+        encodeSonosContentId({ kind: "track", value: item.id }),
+        { getItemMetadata, getPlaybackInfo },
+      ),
+    );
+
+    expect(result.mimeType).toBe("application/vnd.apple.mpegurl");
+    expect(result.itemType).toBe("track");
+    expect(result.trackMetadata.duration).toBe(216);
+    expect(getPlaybackInfo).toHaveBeenCalledWith(item.id);
   });
 
   it.each([

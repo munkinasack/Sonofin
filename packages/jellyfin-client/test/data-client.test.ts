@@ -43,13 +43,15 @@ const SONOS_PLAYBACK_BODY = {
     ],
     TranscodingProfiles: [
       {
-        Container: "mp3",
-        AudioCodec: "mp3",
+        Container: "ts",
+        AudioCodec: "aac",
         Type: "Audio",
-        Protocol: "http",
+        Protocol: "hls",
         Context: "Streaming",
         MaxAudioChannels: "2",
-        EstimateContentLength: true,
+        MinSegments: 1,
+        SegmentLength: 10,
+        BreakOnNonKeyFrames: false,
         EnableAudioVbrEncoding: false,
       },
     ],
@@ -78,7 +80,7 @@ const SONOS_PLAYBACK_BODY = {
       {
         Type: "Audio",
         Codec: "aac",
-        Container: "aac,m4a,mp4",
+        Container: "aac,m4a,mp4,ts",
         Conditions: [
           {
             Condition: "LessThanEqual",

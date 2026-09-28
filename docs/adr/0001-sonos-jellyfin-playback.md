@@ -1,9 +1,15 @@
 # ADR 0001: Sonos-to-Jellyfin audio playback
 
-- Status: Accepted
+- Status: Accepted; forced-transcode sections superseded by ADR 0002
 - Date: 2026-09-15
 - Task: 8.1
 - Compatibility baseline: Sonos SMAPI 1.1 and Jellyfin Server 10.11.11
+
+> [!NOTE]
+> [`ADR 0002`](0002-hls-aac-forced-transcodes.md) replaces this ADR's
+> progressive-MP3 fallback, transcode URL/MIME rules, and related verification
+> gates with HLS AAC. The direct-play, authentication, source-selection, and
+> no-Cloudflare-audio-proxy decisions remain in force.
 
 ## Context
 
@@ -383,10 +389,10 @@ PlaybackInfo responses for:
 - MP3 direct play;
 - AAC-in-M4A direct play;
 - 16-bit FLAC direct play;
-- 24-bit/96-kHz FLAC negotiated to progressive MP3.
+- 24-bit/96-kHz FLAC negotiated to HLS AAC per ADR 0002.
 
 All IDs and the transcode `ApiKey` marker are synthetic. The transcode fixture
-deliberately retains one conspicuously fake `ApiKey` so Task 8.3 can prove that
+deliberately retains one conspicuously fake `ApiKey` so the resolver can prove that
 the raw Jellyfin field is stripped; it is not a usable credential. The fixtures
 contain no server URL, filesystem path, account data, or returned header.
 
