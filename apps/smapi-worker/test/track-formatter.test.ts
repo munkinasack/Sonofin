@@ -8,6 +8,7 @@ import {
 } from "@sonofin/sonos-smapi";
 
 import { formatJellyfinTrackAsSonosBrowseTrack } from "../src";
+import { formatJellyfinTrackWithPlaybackMime } from "../src/track-formatter";
 
 function track(overrides: Partial<JellyfinTrack> = {}): JellyfinTrack {
   return {
@@ -92,6 +93,16 @@ describe("formatJellyfinTrackAsSonosBrowseTrack", () => {
         track({ container: "mov,mp4,m4a,3gp,3g2,mj2" }),
       ).mimeType,
     ).toBe("audio/mp4");
+  });
+
+  it("uses a negotiated playback MIME without requiring a direct-play container", () => {
+    const result = formatJellyfinTrackWithPlaybackMime(
+      track({ container: "ape" }),
+      "application/vnd.apple.mpegurl",
+    );
+
+    expect(result.mimeType).toBe("application/vnd.apple.mpegurl");
+    expect(Object.isFrozen(result)).toBe(true);
   });
 
   it("omits metadata that Jellyfin does not provide", () => {

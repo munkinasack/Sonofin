@@ -9,7 +9,7 @@ import {
 
 import type { SmapiAuthenticatedRequestContext } from "./authenticated-context";
 import { SmapiBrowseError } from "./browse-service";
-import { formatJellyfinTrackAsSonosBrowseTrack } from "./track-formatter";
+import { formatJellyfinTrackWithPlaybackMime } from "./track-formatter";
 
 export interface SmapiGetMediaMetadataRequest {
   readonly context: SmapiAuthenticatedRequestContext;
@@ -45,7 +45,7 @@ export class SonofinMediaMetadataService
     const item = await request.context.jellyfin.getItemMetadata(
       contentId.value,
     );
-    if (item.kind !== "track") {
+    if (item.kind !== "track" || item.id !== contentId.value) {
       throw new SmapiBrowseError("item_not_found");
     }
 
@@ -57,9 +57,6 @@ export class SonofinMediaMetadataService
       playback,
       request.context.connection,
     );
-    return Object.freeze({
-      ...formatJellyfinTrackAsSonosBrowseTrack(item),
-      mimeType: target.mimeType,
-    });
+    return formatJellyfinTrackWithPlaybackMime(item, target.mimeType);
   }
 }

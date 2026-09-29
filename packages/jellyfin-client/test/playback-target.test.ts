@@ -122,6 +122,14 @@ describe("Sonos playback target resolver", () => {
       ...source,
       transcodingUrl: changedSession,
     }), CONNECTION)).toEqual(first);
+    const reorderedReasons = source.transcodingUrl!.replace(
+      "AudioChannelsNotSupported%2CAudioSampleRateNotSupported%2CAudioBitDepthNotSupported",
+      "AudioBitDepthNotSupported%2CAudioChannelsNotSupported%2CAudioSampleRateNotSupported",
+    );
+    expect(resolveSonosPlaybackTarget(IDS[3], oneSource({
+      ...source,
+      transcodingUrl: reorderedReasons,
+    }), CONNECTION)).toEqual(first);
   });
 
   it("resolves 24-bit/96-kHz stereo FLAC to a safe HLS AAC target", async () => {

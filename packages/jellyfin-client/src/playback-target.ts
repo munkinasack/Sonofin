@@ -98,7 +98,7 @@ const PERCENT = /%(?![0-9a-fA-F]{2})/u;
 const ENCODED_SEPARATOR = /%(?:2f|5c|25)/iu;
 const GUID_N = /^[0-9a-f]{32}$/iu;
 const GUID_D = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const REASONS = new Set([
+const TRANSCODE_REASONS = [
   "ContainerNotSupported",
   "ContainerBitrateExceedsLimit",
   "AudioCodecNotSupported",
@@ -109,7 +109,8 @@ const REASONS = new Set([
   "AudioBitDepthNotSupported",
   "SecondaryAudioNotSupported",
   "AudioIsExternal",
-]);
+] as const;
+const REASONS = new Set<string>(TRANSCODE_REASONS);
 const QUERY_ORDER = [
   "DeviceId",
   "MediaSourceId",
@@ -581,10 +582,15 @@ function parseTranscodeQuery(
     !approvedBoolean(values.get("EnableAudioVbrEncoding"), false) ||
     !approvedBoolean(values.get("allowAudioStreamCopy"), false) ||
     !approvedBoolean(values.get("allowVideoStreamCopy"), false) ||
-    !validReasons(values.get("TranscodeReasons")) ||
     !validDiscardedId(values.get("PlaySessionId")) ||
     !validDiscardedId(values.get("Tag"))
   ) {
+    return { failure: "playback_transcode_query_options" };
+  }
+  const transcodeReasons = canonicalTranscodeReasons(
+    values.get("TranscodeReasons"),
+  );
+  if (transcodeReasons === null) {
     return { failure: "playback_transcode_query_options" };
   }
   for (const [name, expected] of [
@@ -595,6 +601,9 @@ function parseTranscodeQuery(
     ["allowVideoStreamCopy", false],
   ] as const) {
     values.set(name, String(expected));
+  }
+  if (transcodeReasons !== undefined) {
+    values.set("TranscodeReasons", transcodeReasons);
   }
   const canonical = new URLSearchParams();
   for (const name of QUERY_ORDER) {
@@ -610,17 +619,23 @@ function approvedBoolean(value: string | undefined, expected: boolean): boolean 
   return value === String(expected) || value === (expected ? "True" : "False");
 }
 
-function validReasons(value: string | undefined): boolean {
+function canonicalTranscodeReasons(
+  value: string | undefined,
+): string | null | undefined {
   if (value === undefined) {
-    return true;
+    return undefined;
   }
   const reasons = value.split(",");
-  return (
-    reasons.length >= 1 &&
-    reasons.length <= REASONS.size &&
-    new Set(reasons).size === reasons.length &&
-    reasons.every((reason) => REASONS.has(reason))
-  );
+  const reasonSet = new Set(reasons);
+  if (
+    reasons.length < 1 ||
+    reasons.length > REASONS.size ||
+    reasonSet.size !== reasons.length ||
+    !reasons.every((reason) => REASONS.has(reason))
+  ) {
+    return null;
+  }
+  return TRANSCODE_REASONS.filter((reason) => reasonSet.has(reason)).join(",");
 }
 
 function validDiscardedId(value: string | undefined): boolean {
