@@ -155,7 +155,7 @@ describe("SonofinMediaMetadataService", () => {
   it("advertises the negotiated HLS media type for a forced transcode", async () => {
     const item = {
       artists: [],
-      container: "flac",
+      container: "ape",
       durationMs: 216_000,
       id: "track-id",
       kind: "track" as const,
@@ -204,22 +204,31 @@ describe("SonofinMediaMetadataService", () => {
       kind: "unknown",
       name: "Wrong Type",
     },
-  ] as const)("rejects a track ID resolving as $kind", async (item) => {
+    {
+      artists: [],
+      container: "mp3",
+      id: "different-id",
+      kind: "track",
+      name: "Wrong ID",
+    },
+  ] as const)("rejects a track ID resolving to mismatched $kind metadata", async (item) => {
     const getItemMetadata = vi
       .fn<() => Promise<JellyfinItemMetadata>>()
       .mockResolvedValue(item as JellyfinItemMetadata);
+    const getPlaybackInfo = vi.fn();
 
     await expect(
       new SonofinMediaMetadataService().getMediaMetadata(
         request(
           encodeSonosContentId({ kind: "track", value: "same-id" }),
-          { getItemMetadata },
+          { getItemMetadata, getPlaybackInfo },
         ),
       ),
     ).rejects.toMatchObject({
       code: "item_not_found",
       name: "SmapiBrowseError",
     });
+    expect(getPlaybackInfo).not.toHaveBeenCalled();
   });
 
   it("preserves credential-safe Jellyfin failures for Worker fault mapping", async () => {

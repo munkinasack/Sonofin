@@ -1,4 +1,4 @@
-// Pinned to the Jellyfin 10.11.11 negotiation contract in ADR 0001.
+// Pinned to the Jellyfin 10.11.11 contracts in ADRs 0001 and 0002.
 const SONOS_DEVICE_PROFILE = {
   Name: "Sonofin Sonos",
   MaxStreamingBitrate: 8_000_000,

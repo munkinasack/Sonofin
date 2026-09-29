@@ -1,6 +1,7 @@
 import {
   JellyfinClientError,
   type JellyfinNamedItem,
+  type JellyfinPlaybackTarget,
   type JellyfinTrack,
 } from "@sonofin/jellyfin-client";
 import {
@@ -182,8 +183,9 @@ function requiredMimeType(container: unknown): string {
  * Converts one normalized Jellyfin track to the single SMAPI representation
  * shared by album, playlist, search, and item-metadata routes.
  */
-export function formatJellyfinTrackAsSonosBrowseTrack(
+function formatJellyfinTrack(
   track: JellyfinTrack,
+  negotiatedMimeType?: JellyfinPlaybackTarget["mimeType"],
 ): SonosBrowseTrack {
   if (
     typeof track !== "object" ||
@@ -221,8 +223,21 @@ export function formatJellyfinTrackAsSonosBrowseTrack(
     id: encodeRequiredTrackId(track.id),
     itemType: "track",
     kind: "track",
-    mimeType: requiredMimeType(track.container),
+    mimeType: negotiatedMimeType ?? requiredMimeType(track.container),
     title: track.name,
     trackMetadata,
   });
+}
+
+export function formatJellyfinTrackAsSonosBrowseTrack(
+  track: JellyfinTrack,
+): SonosBrowseTrack {
+  return formatJellyfinTrack(track);
+}
+
+export function formatJellyfinTrackWithPlaybackMime(
+  track: JellyfinTrack,
+  mimeType: JellyfinPlaybackTarget["mimeType"],
+): SonosBrowseTrack {
+  return formatJellyfinTrack(track, mimeType);
 }
