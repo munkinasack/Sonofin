@@ -20,6 +20,7 @@ import {
 } from "./browse";
 
 const XML_DECLARATION = '<?xml version="1.0" encoding="utf-8"?>';
+const SONOS_MAX_NICKNAME_CHARACTERS = 32;
 
 export interface LastUpdateResult {
   catalog: string;
@@ -38,6 +39,11 @@ export interface AppLinkResult {
 export interface DeviceAuthTokenResult {
   authToken: string;
   privateKey: string;
+}
+
+export interface UserInfoResult {
+  userIdHashCode: string;
+  nickname?: string;
 }
 
 export interface GetMediaURIResult {
@@ -575,6 +581,39 @@ export function serializeSearchResponse(result: SearchResult): string {
       mediaList +
       `</searchResult>` +
       `</searchResponse>`,
+  );
+}
+
+export function serializeGetUserInfoResponse(result: UserInfoResult): string {
+  requireNonEmpty(result.userIdHashCode, "userIdHashCode");
+
+  let nickname = "";
+  if (result.nickname !== undefined) {
+    requireMaximumLength(
+      result.nickname,
+      SONOS_MAX_NICKNAME_CHARACTERS,
+      "nickname",
+    );
+    nickname = requiredTextElement("nickname", result.nickname);
+  }
+
+  return soapEnvelope(
+    `<getUserInfoResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `<getUserInfoResult>` +
+      `<userIdHashCode>${escapeXmlText(result.userIdHashCode)}</userIdHashCode>` +
+      nickname +
+      `</getUserInfoResult>` +
+      `</getUserInfoResponse>`,
+  );
+}
+
+export function serializeReportAccountActionResponse(): string {
+  // The current WSDL defines an empty response type. Sonos's documentation
+  // sample includes an empty result child, but the schema-valid wrapper is
+  // sufficient for this deprecated, side-effect-free notification.
+  return soapEnvelope(
+    `<reportAccountActionResponse xmlns="${SMAPI_NAMESPACE}">` +
+      `</reportAccountActionResponse>`,
   );
 }
 

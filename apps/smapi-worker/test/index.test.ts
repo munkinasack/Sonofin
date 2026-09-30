@@ -185,6 +185,152 @@ const SEARCH_PARAMETERS =
   "<index>0</index><count>10</count>";
 
 describe("SMAPI Worker", () => {
+  it("returns authenticated, pseudonymous user information", async () => {
+    const sink = createSink();
+    const dependencies = createDependencies({ logSink: sink });
+    const response = await handleRequest(
+      makeSoapRequest("getUserInfo"),
+      dependencies,
+    );
+    const body = await response.text();
+    const userIdHashCode =
+      /<userIdHashCode>([0-9a-f]+)<\/userIdHashCode>/u.exec(body)?.[1];
+    const message = vi.mocked(sink.info).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(200);
+    expect(userIdHashCode).toMatch(/^[0-9a-f]{64}$/u);
+    expect(body).toContain("<getUserInfoResponse");
+    expect(body).not.toContain("<nickname>");
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverId);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.userId);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.username);
+    expect(body).not.toContain(JELLYFIN_CONNECTION.serverUrl);
+    expect(body).not.toContain(JELLYFIN_ACCESS_TOKEN);
+    expect(dependencies.sonosAuthentication.authenticate).toHaveBeenCalledWith({
+      authToken: "never-log-this-token",
+      householdId: "Sonos_household",
+    });
+    expect(dependencies.jellyfinConnections.retrieve).toHaveBeenCalledWith(
+      "J".repeat(32),
+    );
+    expect(dependencies.createJellyfinDataClient).toHaveBeenCalledWith(
+      JELLYFIN_CONNECTION,
+    );
+    const logRecord = JSON.parse(message) as Record<string, unknown>;
+    expect(logRecord).toMatchObject({
+      outcome: "success",
+      soapMethod: "getUserInfo",
+    });
+    expect(Object.keys(logRecord).sort()).toEqual([
+      "durationMs",
+      "event",
+      "httpStatus",
+      "outcome",
+      "requestId",
+      "soapMethod",
+    ]);
+  });
+
+  it("authenticates getUserInfo before validating its empty body", async () => {
+    const missingDependencies = createDependencies();
+    const missing = await handleRequest(
+      makeSoapRequest("getUserInfo", { includeCredentials: false }),
+      missingDependencies,
+    );
+    const sink = createSink();
+    const extraDependencies = createDependencies({ logSink: sink });
+    const extra = await handleRequest(
+      makeSoapRequest("getUserInfo", {
+        parameters: "<unexpected>private-value</unexpected>",
+      }),
+      extraDependencies,
+    );
+
+    expect(missing.status).toBe(500);
+    expect(await missing.text()).toContain(
+      "<faultcode>Client.LoginUnauthorized</faultcode>",
+    );
+    expect(missingDependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(extra.status).toBe(500);
+    expect(await extra.text()).toContain("<faultcode>soap:Client</faultcode>");
+    expect(extraDependencies.sonosAuthentication.authenticate).toHaveBeenCalledOnce();
+    expect(extraDependencies.jellyfinConnections.retrieve).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(vi.mocked(sink.warn).mock.calls[0]?.[0] ?? ""),
+    ).toMatchObject({
+      reason: "invalid_parameters",
+      soapMethod: "getUserInfo",
+    });
+  });
+
+  it("acknowledges addAccount without authentication or side effects", async () => {
+    const sink = createSink();
+    const dependencies = createDependencies({ logSink: sink });
+    const response = await handleRequest(
+      makeSoapRequest("reportAccountAction", {
+        includeCredentials: false,
+        parameters: "<type>addAccount</type>",
+      }),
+      dependencies,
+    );
+    const body = await response.text();
+    const message = vi.mocked(sink.info).mock.calls[0]?.[0] ?? "";
+
+    expect(response.status).toBe(200);
+    expect(body).toContain(
+      '<reportAccountActionResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        "</reportAccountActionResponse>",
+    );
+    expect(dependencies.sonosAuthentication.authenticate).not.toHaveBeenCalled();
+    expect(dependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(dependencies.createJellyfinDataClient).not.toHaveBeenCalled();
+    expect(dependencies.links.createPendingLink).not.toHaveBeenCalled();
+    expect(dependencies.links.claim).not.toHaveBeenCalled();
+    expect(dependencies.sonosAuthentication.issue).not.toHaveBeenCalled();
+    expect(dependencies.sonosAuthentication.revoke).not.toHaveBeenCalled();
+    const logRecord = JSON.parse(message) as Record<string, unknown>;
+    expect(logRecord).toMatchObject({
+      outcome: "success",
+      soapMethod: "reportAccountAction",
+    });
+    expect(Object.keys(logRecord).sort()).toEqual([
+      "durationMs",
+      "event",
+      "httpStatus",
+      "outcome",
+      "requestId",
+      "soapMethod",
+    ]);
+  });
+
+  it.each([
+    "",
+    "<type>removeAccount</type>",
+    `<type>${"A".repeat(129)}</type>`,
+    "<type>addAccount</type><unexpected>value</unexpected>",
+  ])("rejects an invalid account-action shape", async (parameters) => {
+    const sink = createSink();
+    const dependencies = createDependencies({ logSink: sink });
+    const response = await handleRequest(
+      makeSoapRequest("reportAccountAction", {
+        includeCredentials: false,
+        parameters,
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("<faultcode>soap:Client</faultcode>");
+    expect(dependencies.sonosAuthentication.authenticate).not.toHaveBeenCalled();
+    expect(dependencies.jellyfinConnections.retrieve).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(vi.mocked(sink.warn).mock.calls[0]?.[0] ?? ""),
+    ).toMatchObject({
+      reason: "invalid_parameters",
+      soapMethod: "reportAccountAction",
+    });
+  });
+
   it("returns the authenticated 30-second catalog refresh contract without catalog reads", async () => {
     const jellyfin = createJellyfinDataClientSpies();
     const browse = { getMetadata: vi.fn() };

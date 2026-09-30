@@ -74,7 +74,9 @@ export type SmapiLogMethod =
   | "getExtendedMetadata"
   | "getExtendedMetadataText"
   | "getMediaMetadata"
-  | "getMediaURI";
+  | "getMediaURI"
+  | "getUserInfo"
+  | "reportAccountAction";
 
 export type SmapiLogReason =
   | "internal_error"
