@@ -435,6 +435,48 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     expect(storedSonos).not.toContain(authToken);
     expect(storedSonos).not.toContain(privateKey);
 
+    const userInfo = await handleSmapi(
+      soapRequest("getUserInfo", "", {
+        authToken,
+        householdId,
+        privateKey,
+      }),
+      dependencies,
+    );
+    const userInfoXml = await userInfo.text();
+    expect(userInfo.status).toBe(200);
+    expect(element(userInfoXml, "userIdHashCode")).toMatch(
+      /^[0-9a-f]{64}$/u,
+    );
+    expect(userInfoXml).not.toContain(JELLYFIN_CONNECTION.serverId);
+    expect(userInfoXml).not.toContain(JELLYFIN_CONNECTION.userId);
+    expect(userInfoXml).not.toContain(JELLYFIN_CONNECTION.username);
+
+    const accountAction = await handleSmapi(
+      soapRequest(
+        "reportAccountAction",
+        "<type>addAccount</type>",
+      ),
+      dependencies,
+    );
+    expect(accountAction.status).toBe(200);
+    expect(await accountAction.text()).toContain(
+      "<reportAccountActionResponse",
+    );
+
+    const repeatedUserInfo = await handleSmapi(
+      soapRequest("getUserInfo", "", {
+        authToken,
+        householdId,
+        privateKey,
+      }),
+      dependencies,
+    );
+    expect(repeatedUserInfo.status).toBe(200);
+    expect(element(await repeatedUserInfo.text(), "userIdHashCode")).toBe(
+      element(userInfoXml, "userIdHashCode"),
+    );
+
     const authenticated = await handleSmapi(
       soapRequest("getLastUpdate", "", {
         authToken,
@@ -445,7 +487,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     );
     expect(authenticated.status).toBe(200);
     expect(await authenticated.text()).toContain("<getLastUpdateResponse");
-    expect(createJellyfinDataClient).toHaveBeenCalledOnce();
+    expect(createJellyfinDataClient).toHaveBeenCalledTimes(3);
     expect(createJellyfinDataClient).toHaveBeenCalledWith(
       JELLYFIN_CONNECTION,
     );
@@ -481,7 +523,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     );
     expect(rootBrowseXml).not.toContain(JELLYFIN_PASSWORD);
     expect(rootBrowseXml).not.toContain(JELLYFIN_TOKEN);
-    expect(createJellyfinDataClient).toHaveBeenCalledTimes(2);
+    expect(createJellyfinDataClient).toHaveBeenCalledTimes(4);
 
     const wrongKeyConnections = new JellyfinConnectionService({
       cipher: new AesGcmTokenCipher(WRONG_TOKEN_ENCRYPTION_KEY),
@@ -506,7 +548,7 @@ describe("Milestone 5 browser-link and Sonos-authentication lifecycle", () => {
     );
     expect(undecryptableBody).not.toContain(JELLYFIN_TOKEN);
     expect(undecryptableBody).not.toContain(JELLYFIN_SERVER_URL);
-    expect(createJellyfinDataClient).toHaveBeenCalledTimes(2);
+    expect(createJellyfinDataClient).toHaveBeenCalledTimes(4);
 
     const unknownToken = await handleSmapi(
       soapRequest("getLastUpdate", "", {

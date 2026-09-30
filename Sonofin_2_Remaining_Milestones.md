@@ -332,9 +332,34 @@ with 750 unit/cross-Worker tests, seven isolated D1 tests, and dry-run builds fo
 both Workers. The implementation adds no migration, cache binding, catalog
 persistence, randomness, or isolate-level mutable state.
 
+### [x] Task 7.8d — Post-link account-call compatibility
+
+**Budget:** 1.5–2.5 hours. **Prerequisite:** 7.8c. **Discovered by:** 7.9
+real-system verification.
+
+- Add authenticated `getUserInfo` with an exact WSDL-ordered serializer. Derive
+  its required opaque identifier from a domain-separated SHA-256 digest of the
+  stable Jellyfin server/user identity; do not expose or log either source ID,
+  username, server URL, household ID, connection/link ID, or credentials.
+- Add a side-effect-free `reportAccountAction` handler for the sole documented,
+  bounded `addAccount` value. Accept the official credential-free request,
+  persist nothing, and return the empty response defined by the WSDL.
+- Preserve bounded parsing, exact authenticated household binding for user
+  information, fixed SOAP faults, and allow-listed method-only diagnostics.
+  Cover serializers, privacy/stability, authentication, malformed inputs, and
+  the full browser-link-to-browse lifecycle before resuming Task 7.9.
+
+**Evidence:** after a successful real Sonos account link, the app immediately
+issued `getUserInfo` and `reportAccountAction`; both received unsupported-method
+faults before the app displayed no content. The implementation deliberately
+does not add `refreshAuthToken`, playback reporting, persistence, or a new
+secret/binding. The focused post-link lifecycle coverage and full repository
+check pass: 33 unit/cross-Worker test files with 826 tests, seven isolated D1
+tests, and dry-run builds for both Workers.
+
 ### [ ] Task 7.9 — Milestone 7 real-system browse verification
 
-**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8c and a ready Jellyfin server,
+**Budget:** 2–4.5 hours. **Prerequisites:** 7.1–7.8d and a ready Jellyfin server,
 Sonos test household/service registration, representative music, and test
 credentials.
 
@@ -1138,7 +1163,7 @@ registration or compatibility gate proves one mandatory; in that case, add a
 new bounded task before the affected gate:
 
 - `getExtendedMetadataText`
-- `reportAccountAction` and playback reporting
+- playback reporting
 - favorites and playlist mutation
 - caching or scroll-index optimization
 - a separate internal encryption/credential Worker

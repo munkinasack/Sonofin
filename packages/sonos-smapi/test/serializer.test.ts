@@ -5,6 +5,8 @@ import {
   serializeGetAppLinkResponse,
   serializeGetDeviceAuthTokenResponse,
   serializeGetLastUpdateResponse,
+  serializeGetUserInfoResponse,
+  serializeReportAccountActionResponse,
   serializeSoapFault,
   type SoapFaultCode,
 } from "../src";
@@ -202,6 +204,65 @@ describe("serializeGetDeviceAuthTokenResponse", () => {
         privateKey: "key",
       }),
     ).toThrow(TypeError);
+  });
+});
+
+describe("serializeGetUserInfoResponse", () => {
+  it("generates user information in WSDL element order", () => {
+    const xml = serializeGetUserInfoResponse({
+      nickname: "Björk <東京>",
+      userIdHashCode: "opaque&stable",
+    });
+
+    expect(xml).toContain(
+      '<getUserInfoResponse xmlns="http://www.sonos.com/Services/1.1">',
+    );
+    expect(xml).toContain(
+      "<getUserInfoResult>" +
+        "<userIdHashCode>opaque&amp;stable</userIdHashCode>",
+    );
+    expect(xml).toContain("<nickname>Björk &lt;東京&gt;</nickname>");
+    expect(xml.indexOf("<userIdHashCode>")).toBeLessThan(
+      xml.indexOf("<nickname>"),
+    );
+    expectWellFormedXml(xml);
+  });
+
+  it("omits the optional nickname", () => {
+    const xml = serializeGetUserInfoResponse({
+      userIdHashCode: "opaque-stable-id",
+    });
+
+    expect(xml).not.toContain("<nickname>");
+    expectWellFormedXml(xml);
+  });
+
+  it("rejects missing, overlong, or XML-invalid user information", () => {
+    expect(() =>
+      serializeGetUserInfoResponse({ userIdHashCode: "" }),
+    ).toThrow(TypeError);
+    expect(() =>
+      serializeGetUserInfoResponse({
+        nickname: "🎵".repeat(33),
+        userIdHashCode: "opaque-stable-id",
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      serializeGetUserInfoResponse({ userIdHashCode: "invalid\u0000id" }),
+    ).toThrow(TypeError);
+  });
+});
+
+describe("serializeReportAccountActionResponse", () => {
+  it("generates the empty response defined by the WSDL", () => {
+    const xml = serializeReportAccountActionResponse();
+
+    expect(xml).toContain(
+      '<reportAccountActionResponse xmlns="http://www.sonos.com/Services/1.1">' +
+        "</reportAccountActionResponse>",
+    );
+    expect(xml).not.toContain("reportAccountActionResult");
+    expectWellFormedXml(xml);
   });
 });
 

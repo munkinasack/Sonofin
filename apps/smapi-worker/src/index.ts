@@ -38,6 +38,8 @@ import {
   serializeGetMediaMetadataResponse,
   serializeGetMediaURIResponse,
   serializeGetMetadataResponse,
+  serializeGetUserInfoResponse,
+  serializeReportAccountActionResponse,
   serializeSearchResponse,
   serializeSoapFault,
   SoapRequestError,
@@ -77,6 +79,7 @@ import {
   type SmapiSearchService,
 } from "./search-service";
 import { SmapiTrackFormatError } from "./track-formatter";
+import { deriveSonosUserIdHashCode } from "./user-info";
 
 export {
   mapJellyfinErrorToSoapFault,
@@ -138,6 +141,8 @@ type SupportedMethod =
   | "getMediaMetadata"
   | "getMediaURI"
   | "getMetadata"
+  | "getUserInfo"
+  | "reportAccountAction"
   | "search";
 
 interface Env {
@@ -399,6 +404,8 @@ function isSupportedMethod(method: string): method is SupportedMethod {
     method === "getMediaMetadata" ||
     method === "getMediaURI" ||
     method === "getMetadata" ||
+    method === "getUserInfo" ||
+    method === "reportAccountAction" ||
     method === "search"
   );
 }
@@ -751,10 +758,13 @@ function onboardingBaseUrl(value: string): URL {
   return url;
 }
 
-function invalidParameters(method: SupportedMethod): RequestResult {
+function invalidParameters(
+  method: SupportedMethod,
+  reason: "invalid_soap" | "invalid_parameters" = "invalid_soap",
+): RequestResult {
   return {
     outcome: "rejected",
-    reason: "invalid_soap",
+    reason,
     response: soapFault("The SOAP request parameters are invalid", "soap:Client"),
     soapMethod: method,
   };
@@ -914,6 +924,54 @@ function handleGetLastUpdate(
       }),
     ),
     soapMethod: "getLastUpdate",
+  };
+}
+
+async function handleGetUserInfo(
+  parameters: Readonly<Record<string, string>>,
+  context: SmapiAuthenticatedRequestContext,
+): Promise<RequestResult> {
+  if (Object.keys(parameters).length !== 0) {
+    return invalidParameters("getUserInfo", "invalid_parameters");
+  }
+
+  try {
+    const userIdHashCode = await deriveSonosUserIdHashCode(context.connection);
+    return {
+      outcome: "success",
+      response: xmlResponse(
+        serializeContentResponse(() =>
+          serializeGetUserInfoResponse({ userIdHashCode }),
+        ),
+      ),
+      soapMethod: "getUserInfo",
+    };
+  } catch (error) {
+    const fault = mapJellyfinErrorToSoapFault(error);
+    return safeSoapFailure(
+      "getUserInfo",
+      fault,
+      failureDiagnostics(fault, error, "jellyfin", undefined),
+    );
+  }
+}
+
+function handleReportAccountAction(
+  parameters: Readonly<Record<string, string>>,
+): RequestResult {
+  const names = Object.keys(parameters);
+  if (
+    names.length !== 1 ||
+    names[0] !== "type" ||
+    requiredParameter(parameters, "type", 128) !== "addAccount"
+  ) {
+    return invalidParameters("reportAccountAction", "invalid_parameters");
+  }
+
+  return {
+    outcome: "success",
+    response: xmlResponse(serializeReportAccountActionResponse()),
+    soapMethod: "reportAccountAction",
   };
 }
 
@@ -1222,6 +1280,7 @@ async function routeRequest(
     parsed.method === "getMediaMetadata" ||
     parsed.method === "getMediaURI" ||
     parsed.method === "getMetadata" ||
+    parsed.method === "getUserInfo" ||
     parsed.method === "search"
   ) {
     const authenticated = await resolveSmapiAuthenticatedContext(
@@ -1251,6 +1310,10 @@ async function routeRequest(
 
     if (parsed.method === "getLastUpdate") {
       return handleGetLastUpdate(authenticated.context, dependencies);
+    }
+
+    if (parsed.method === "getUserInfo") {
+      return handleGetUserInfo(parsed.parameters, authenticated.context);
     }
 
     if (parsed.method === "getExtendedMetadata") {
@@ -1294,6 +1357,10 @@ async function routeRequest(
 
   if (parsed.method === "getAppLink") {
     return handleGetAppLink(parsed.parameters, dependencies);
+  }
+
+  if (parsed.method === "reportAccountAction") {
+    return handleReportAccountAction(parsed.parameters);
   }
 
   return handleGetDeviceAuthToken(

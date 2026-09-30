@@ -51,6 +51,8 @@ export {
   serializeGetMediaMetadataResponse,
   serializeGetMediaURIResponse,
   serializeGetMetadataResponse,
+  serializeGetUserInfoResponse,
+  serializeReportAccountActionResponse,
   serializeSearchResponse,
   serializeSoapFault,
   type AppLinkResult,
@@ -60,4 +62,5 @@ export {
   type SonosFaultCode,
   type SoapFaultDetail,
   type SoapFaultCode,
+  type UserInfoResult,
 } from "./serializer";

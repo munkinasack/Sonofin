@@ -9,7 +9,7 @@
 
 Sonofin is a Cloudflare Workers implementation of a Sonos Music API service
 for Jellyfin. The repository currently implements **Milestone 6, Tasks
-7.1–7.8c, and Tasks 8.1, 8.3, 8.4, 8.6, and 8.7 of the playback milestone**: browser
+7.1–7.8d, and Tasks 8.1, 8.3, 8.4, 8.6, and 8.7 of the playback milestone**: browser
 onboarding ends with a separate, durable Sonos-facing credential, the Jellyfin
 package provides the reusable authenticated music-data layer, and the SMAPI
 Worker resolves each authenticated Sonos mapping into a request-scoped Jellyfin
@@ -17,7 +17,9 @@ data client. The Worker implements authenticated `getMetadata` routes for the
 fixed root menu, paginated artists, global or artist-filtered albums, and
 album or playlist tracks. It also implements the matching four-category
 search contract, the mandatory metadata methods, and a globally deterministic
-30-second catalog refresh signal. The Jellyfin client now resolves safe,
+30-second catalog refresh signal. Post-link compatibility includes authenticated
+`getUserInfo` and the side-effect-free `reportAccountAction(addAccount)`
+notification Sonos sends after account setup. The Jellyfin client now resolves safe,
 deterministic playback targets. The SMAPI Worker now returns a validated
 Jellyfin media URI and an Authorization header for direct player streaming.
 Conforming files remain direct-play targets; forced transcodes now negotiate
@@ -40,6 +42,21 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+
+## What Task 7.8d adds
+
+- Authenticated `getUserInfo` returns a deterministic SHA-256 pseudonym scoped
+  to the Jellyfin server/user pair. The response exposes no Jellyfin IDs,
+  username, URL, access token, Sonos household ID, or link-specific identifier,
+  and remains stable across Sonos removal and re-linking to the same account.
+- `reportAccountAction` accepts only the documented, bounded `addAccount`
+  notification and returns the empty WSDL response without authentication,
+  persistence, or other side effects. This matches the Sonos request observed
+  immediately after browser linking, whose official example omits credentials.
+- Both methods retain bounded SOAP parsing, fixed allow-listed logs, exact
+  household authentication for user information, credential-safe faults, and
+  cross-Worker lifecycle coverage. `refreshAuthToken`, playback reporting, and
+  other optional account methods remain outside this compatibility fix.
 
 ## What Task 8.7 adds
 
@@ -373,11 +390,12 @@ ultra reasoning; do not implement a whole remaining milestone in one run.
   item-scoped `404` responses have a distinct `item_not_found` error, while
   other server failures remain safely generalized.
 
-Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.8c now supply
+Milestone 6 deliberately did not add SMAPI browsing. Tasks 7.1–7.8d now supply
 the browse protocol layer, authenticated context, root route, artist and album
 collections, album tracks, playlists, playlist tracks, and the
 category-filtered Jellyfin and Sonos search contracts, plus the required
-extended- and media-metadata methods and stateless 30-second catalog refreshes.
+extended- and media-metadata methods, stateless 30-second catalog refreshes,
+and the post-link account-information compatibility calls.
 Direct Sonos-to-Jellyfin playback integration and activity tracking remain
 later tasks in Milestones 8–9. Caching and stream proxying remain explicitly
 deferred.

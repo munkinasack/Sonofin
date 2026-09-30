@@ -330,6 +330,7 @@ Likely methods:
 - `getMediaURI`
 - `search`
 - `getLastUpdate`
+- `getUserInfo`
 - `reportAccountAction` where applicable
 
 ## B. `sonofin-auth`
