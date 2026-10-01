@@ -1,11 +1,13 @@
 # Sonofin 2.0 — Remaining Milestone Execution Plan
 
-This document decomposes Milestones 7 through 12 from
+This document decomposes Milestones 7 through 12 and additions 10A–10B from
 `Sonofin_2_Codex_Handoff.md` into bounded Codex tasks. The repository baseline
 is the checked-in Milestone 6 implementation described by `README.md`.
 Milestone 8A adds authenticated artwork after playback verification. Milestone
 10A adds the later Service Bindings architecture decision before security
-hardening and production deployment.
+hardening and production deployment. Milestone 10B adds optional Cloudflare
+Basin operational analytics without making analytics part of Sonofin's request
+or credential source of truth.
 
 The broad milestone goals in the handoff remain authoritative product scope.
 The numbered tasks below are authoritative for execution order and task
@@ -88,11 +90,12 @@ the repository green and describe the smallest follow-up task required.
 
 ## External-entry gates
 
-Tasks 7.9, 8.5, 8.8, 8A.5, 10A.1, 10A.7, 12.5, and 12.6 need systems outside this
-repository. Do not start their five-hour clocks until the listed server,
-hardware, account, domain, test media, and secrets are ready. Planning these
-tasks does not authorize a staging or production deployment. Tasks 10A.7,
-12.5, and 12.6 each require explicit authorization when they are run.
+Tasks 7.9, 8.5, 8.8, 8A.5, 10A.1, 10A.7, 10B.3, 10B.5, 10B.7, 12.5, and 12.6
+need systems outside this repository. Do not start their five-hour clocks until
+the listed server, hardware, account, domain, test media, and secrets are ready.
+Planning these tasks does not authorize Cloudflare resource provisioning or a
+staging or production deployment. Tasks 10A.7, 10B.3, 10B.5, 10B.7, 12.5, and
+12.6 each require explicit authorization when they are run.
 
 ## Dependency order
 
@@ -101,12 +104,15 @@ Use the task order within each milestone. The cross-milestone critical path is:
 ```text
 7.1 + 7.2 -> 7.3 ... 7.9 -> 8.1 -> 8.3 -> 8.4 -> 8.5 -> 8.6 -> 8.7 -> 8.8
     -> 8A.1 ... 8A.5 -> 9.1 -> 9.2 -> 10.1 ... 10.6 -> 10A.1 ... 10A.7
-    -> 11.1 ... 11.6 -> 12.1 ... 12.6
+    -> 10B.4 ... 10B.7 -> 11.1 ... 11.6 -> 12.1 ... 12.6
 ```
 
 Security research in 11.1 can begin earlier as a separate read-only task, but
 11.2 must use its accepted decision and public deployment remains blocked until
-all of Milestone 11 is complete.
+all of Milestone 11 is complete. Basin Tasks 10B.1–10B.3 may run in order
+against the current two-Worker topology without waiting for the critical path;
+10B.4 waits for Milestones 9, 10, and 10A so final event coverage is not built
+against a temporary Worker topology.
 
 ## Milestone 7 — SMAPI browsing
 
@@ -977,6 +983,217 @@ authorization for the staging deployment. **Gate:** no production deployment.
   inventory used by Milestones 11–12; run `pnpm check` and close the milestone
   only after the measured and protocol gates pass.
 
+## Milestone 10B — Cloudflare Basin operational analytics
+
+Milestone exit: Sonofin can emit a deliberately small, versioned set of
+credential-safe operational events through Cloudflare Basin Pipelines, retain
+them as managed Apache Iceberg data in R2, and answer bounded operational
+questions with Basin SQL. Basin remains optional and non-authoritative: D1 and
+the request path remain the source of truth, and Basin unavailability, schema
+rejection, or query failure never changes onboarding, SMAPI, playback, artwork,
+activity, or cleanup behavior.
+
+### Capability assessment (October 1, 2026)
+
+Cloudflare Basin is the generally available name for the former Cloudflare
+Data Platform. The current product family is [Basin Pipelines](https://developers.cloudflare.com/basin-pipelines/),
+[Basin Catalog](https://developers.cloudflare.com/basin-catalog/), and
+[Basin SQL](https://developers.cloudflare.com/basin-sql/). Recheck the primary
+documentation, Wrangler schema, limits, and pricing when each task begins;
+product names, bindings, permissions, and commercial terms can change.
+
+Features that fit Sonofin now:
+
+- A structured Pipelines stream can accept small JSON event batches through a
+  private Worker binding without embedding an ingestion token. Wrangler can
+  generate schema-specific TypeScript binding types. Invalid structured events
+  can be accepted at ingress and then dropped, so schema tests and Pipelines
+  user-error metrics are mandatory.
+- Pipelines SQL can filter, normalize, and route events to a dedicated R2
+  Parquet or JSON sink. This is enough to prove aggregate request, latency,
+  outcome, and failure-class telemetry against the present `sonofin-smapi` and
+  `sonofin-auth` topology without waiting for later product features.
+- Pipelines dashboard and GraphQL metrics can verify records/bytes in, records
+  delivered, decode errors, and sink failures. They measure the analytics path,
+  not Sonofin correctness, and must not replace existing tests or safe logs.
+
+Features that fit closer to Sonofin completion:
+
+- An Iceberg sink managed by Basin Catalog becomes valuable after activity,
+  maintenance, and the final Service Binding Worker topology exist. Catalog can
+  provide schema evolution, automatic compaction, snapshot expiration, and
+  portable read access without adding a database dependency to live requests.
+- Basin SQL can then provide read-only, time-bounded OLAP for method volume,
+  error and latency distributions, onboarding outcomes, direct-versus-HLS
+  playback decisions, maintenance aggregates, deployment comparisons, and
+  telemetry delivery health. It is an analytics engine, not a transactional
+  database, alert transport, or replacement for D1.
+- A single stream can feed multiple pipelines, and Cloudflare Logpush can be a
+  source, but neither is initial scope. Add them only after a separate field,
+  privacy, duplication, retention, and cost review; raw request URLs, client
+  network data, headers, and platform logs do not inherit Sonofin's allow-list
+  automatically.
+
+Adoption constraints:
+
+- Pipelines requires a Workers Paid plan. Catalog requires R2, an active R2
+  subscription, and a linked payment card. Basin and R2 have separate usage
+  dimensions; use the current [Basin pricing](https://developers.cloudflare.com/basin/platform/pricing/)
+  and [Pipelines limits](https://developers.cloudflare.com/basin-pipelines/platform/limits/)
+  rather than copying undated assumptions into configuration.
+- Basin Catalog does not currently support R2 buckets in a non-default
+  jurisdiction. Production use is blocked for an operator who requires a
+  jurisdiction the product cannot supply; Task 10B.1 must record that decision.
+- Events must never contain household/device/link/connection/item IDs, user or
+  server identifiers, URLs, query strings, IP addresses, media titles, search
+  text, request or response bodies, headers, passwords, private keys, or tokens.
+  Basin is not a raw trace archive. Use only enumerated Worker/method/category,
+  outcome, status, bounded timing, deployment, and aggregate maintenance fields.
+- Retention in the analytics lake is independent of D1 connection cleanup.
+  Keep it short and explicit, expire old snapshots and data safely through the
+  Catalog, and document deletion and backup limitations before production use.
+
+All Tasks 10B.1–10B.7 use the required Sol Ultra preset above and retain the
+same 4.5-hour maximum planning envelope.
+
+### [ ] Task 10B.1 — Basin adoption, privacy, and cost ADR
+
+**Budget:** 2.5–4 hours. **Prerequisite:** current checked-in implementation.
+**Gate:** research and design only; create no Cloudflare resources.
+
+- Revalidate Basin GA status, Worker-binding and structured-stream behavior,
+  sink choices, Catalog maintenance, SQL capabilities/limitations, account
+  prerequisites, permissions, limits, current pricing, and jurisdiction
+  support from primary Cloudflare documentation and the installed Wrangler
+  schema/types.
+- Record an ADR with the optional/non-authoritative failure model, event and
+  schema-version boundaries, delivery semantics, environment isolation,
+  retention target, disable/rollback switch, and a conservative monthly cost
+  envelope based on measured Sonofin request volume rather than guesses.
+- Produce a field-level allow-list and forbidden-field tests. Decide whether a
+  one-use random correlation value has enough operational benefit to justify
+  collection; default to no per-request or per-user identifier.
+- Separate the immediately useful Pipelines proof from the later Catalog/SQL
+  rollout. Explicitly reject raw Logpush ingestion for initial scope and record
+  any operator decision required by plan, R2, card, or data-jurisdiction needs.
+
+### [ ] Task 10B.2 — Versioned operational-event contract and test seam
+
+**Budget:** 3–4.5 hours. **Prerequisite:** accepted 10B.1 ADR.
+
+- Add one shared, versioned, compile-time-bounded operational-event contract and
+  an injected sink with a no-op implementation. Reuse existing enumerated safe
+  log classifications where appropriate without converting arbitrary log text
+  into analytics records.
+- Cover only the ADR's allow-listed timestamp, environment/deployment, Worker
+  role, operation/method, outcome, HTTP/fault class, bounded duration, safe
+  content category/kind, playback mode, and aggregate cleanup counts. Exclude
+  free-form strings and every forbidden identifier or credential class.
+- Define batching, timestamp validation, duration/count bounds, schema version
+  handling, and sink error behavior. A telemetry write must not delay or alter
+  a valid user response beyond the accepted ADR budget and must never be retried
+  through D1 as authoritative work.
+- Add type, serialization, redaction-canary, malformed-value, sink-failure, and
+  existing-log-compatibility tests; run `pnpm check` without adding a real Basin
+  binding or resource identifier.
+
+### [ ] Task 10B.3 — Authorized Basin Pipelines non-production proof
+
+**Budget:** 3–4.5 hours. **Prerequisites:** 10B.2; explicit authorization; a
+Workers Paid Cloudflare account with R2/card prerequisites, a non-production
+environment, and its least-privilege credentials. **Gate:** no production use.
+
+- Provision a dedicated structured stream and R2 Parquet sink in the authorized
+  non-production environment, using placeholder-only checked-in examples. Add
+  SQL transforms that select only the accepted schema and reject or drop
+  everything else. Never commit stream IDs, bucket/account IDs, or API tokens.
+- Add a typed Pipelines Worker binding behind the injected sink and instrument
+  a minimal representative slice of the current SMAPI and onboarding Workers.
+  Preserve existing console-log behavior and prove that Basin latency, rejection,
+  quota, and unavailability do not change HTTP/SOAP results.
+- Verify successful ingestion, transform output, schema-mismatch drops, user
+  error metrics, batch limits, environment isolation, disable/rollback, and
+  absence of forbidden canaries in R2. Record measured request latency and event
+  volume/cost inputs without private identifiers.
+- Add local fakes and focused integration tests, document resource teardown,
+  and run `pnpm check`. Do not enable Catalog, Basin SQL, Logpush, or a
+  production binding in this task.
+
+### [ ] Task 10B.4 — Final Worker topology event coverage
+
+**Budget:** 3–4.5 hours. **Prerequisites:** 10B.3 and Milestones 9, 10, and 10A.
+
+- Extend the accepted event contract across the public SMAPI gateway, each
+  private method Worker, onboarding, artwork delivery, and maintenance without
+  double-counting one Sonos operation across gateway and target events.
+- Add explicit safe events for activity-touch outcomes, direct/HLS playback
+  selection, aggregate maintenance batches, Service Binding availability, and
+  Worker/deployment attribution. Keep Jellyfin targets, item identity, household
+  identity, and cleanup candidate identity unobservable.
+- Define additive schema evolution and mixed-deployment compatibility so old
+  and new Workers can overlap during target-first Service Binding deployments.
+  Test event counts, classification, redaction, partial rollout, sink failure,
+  and no change to protocol responses; run `pnpm check`.
+
+### [ ] Task 10B.5 — Basin Catalog Iceberg lifecycle
+
+**Budget:** 3–4.5 hours. **Prerequisites:** 10B.4, an accepted jurisdiction and
+retention decision from 10B.1, and explicit authorization for the
+non-production Catalog resources. **Gate:** no production use.
+
+- Create separate non-production Catalog/Iceberg resources and an Iceberg sink
+  for the finalized schema using least-privilege write credentials. Keep query
+  clients read-only and keep all identifiers and tokens out of the repository.
+- Choose time-based partitioning and file layout from measured volume. Configure
+  and verify snapshot expiration and compaction without manually deleting
+  Catalog metadata/data files or assuming maintenance removes every orphan.
+- Document schema evolution, short analytics retention, teardown/deletion,
+  restore limitations, R2/Catalog cost dimensions, and a safe migration from
+  the Task 10B.3 proof sink. Test a backward-compatible schema addition and a
+  rejected breaking change before switching the non-production pipeline.
+- Add reproducible placeholder-only provisioning/inspection commands and
+  release checks. Do not put Catalog access or API tokens in a user-facing
+  Worker and do not enable production ingestion.
+
+### [ ] Task 10B.6 — Basin SQL operational queries and runbook
+
+**Budget:** 3–4 hours. **Prerequisite:** 10B.5.
+
+- Add reviewed, read-only, time-filtered SQL queries for volume, success/error
+  rates, bounded latency percentiles, onboarding outcomes, playback mode,
+  maintenance aggregates, Service Binding rollout comparison, and ingestion
+  completeness. Queries must not reconstruct or imply user-level histories.
+- Use partition/time predicates and documented scan ceilings because Basin SQL
+  bills by compressed bytes scanned with a per-query minimum. Include `EXPLAIN`
+  or equivalent inspection where useful and prevent unbounded routine scans.
+- Document least-privilege query-token handling, Wrangler/API use, expected
+  freshness, empty/late data, query failures, schema-version filters, and the
+  distinction between Basin analytics, Workers observability, safe logs, and
+  availability alerting.
+- Validate every query against deterministic synthetic events and the authorized
+  non-production table; check in no result containing account/resource IDs or
+  private operational data.
+
+### [ ] Task 10B.7 — Authorized Basin staging validation and closeout
+
+**Budget:** 3–4.5 hours. **Prerequisites:** 10B.6, representative staging
+traffic, and explicit authorization for staging resources/deployment. **Gate:**
+no production deployment.
+
+- Enable the final Pipeline/Catalog/SQL topology in staging and exercise
+  onboarding, every SMAPI method class, direct and HLS playback selection,
+  artwork, activity throttling, maintenance, mixed Worker versions, and the
+  analytics off switch without collecting private identifiers.
+- Reconcile emitted, accepted, transformed, delivered, and query-visible event
+  counts; probe schema rejection, sink outage, delayed delivery, and resource
+  disablement. Confirm all user paths remain correct while analytics fails.
+- Measure request-latency impact, storage/scan volume, projected Basin plus R2
+  cost, retention/maintenance behavior, and operational usefulness against the
+  10B.1 acceptance thresholds. Repair only bounded defects or keep Basin off.
+- Update Milestone 12 inventory, runbooks, staging/production gates, rollback,
+  and monitoring checks. Run `pnpm check` and close Milestone 10B only when the
+  privacy, non-interference, cost, lifecycle, and query gates all pass.
+
 ## Milestone 11 — Security hardening
 
 Milestone exit: arbitrary Jellyfin hostnames are subject to a documented and
@@ -986,7 +1203,7 @@ enable local HTTP accidentally, and adversarial regression tests pass.
 
 ### [ ] Task 11.1 — DNS rebinding feasibility and SSRF ADR
 
-**Budget:** 2.5–4 hours. **Prerequisite:** Milestone 10A complete.
+**Budget:** 2.5–4 hours. **Prerequisite:** Milestone 10B complete.
 
 - Verify current Cloudflare Workers `fetch`, DNS, egress, Gateway/VPC, and local
   test-runtime guarantees from primary documentation and a minimal safe
@@ -1059,7 +1276,9 @@ Cloudflare capability/account decision.
   bounded reads, timeouts, redirect rejection, fixed paths, XML/HTML/header
   injection, query credentials, and allow-listed logging. Include
   playback-derived URLs and headers, plus the authenticated artwork route and
-  its cache authorization boundary.
+  its cache authorization boundary. Audit every Basin event producer,
+  transform, sink, schema, and checked-in query against the same credential and
+  identifier deny-list.
 - Add table-driven/fuzz-style regression cases for hostile Unicode, IP and URL
   spellings, oversized values, malformed UTF-8/XML/forms/JSON, and secret
   canaries. Use constant-time comparison where plaintext secret comparison
@@ -1081,9 +1300,10 @@ credential-safe evidence.
 **Budget:** 3–4 hours. **Prerequisite:** Milestone 11 complete.
 
 - Inventory every secret, variable, D1 binding, Service Binding,
-  rate-limit/egress binding, route/domain, Cron Trigger, compatibility date,
-  and deployment dependency for the gateway, all method Workers, onboarding,
-  and maintenance. Make checked-in examples consistent and placeholder-only.
+  rate-limit/egress/Pipelines binding, route/domain, Cron Trigger, R2/Basin
+  resource, compatibility date, and deployment dependency for the gateway, all
+  method Workers, onboarding, maintenance, and optional analytics path. Make
+  checked-in examples consistent and placeholder-only.
 - Add one documented release-check command that covers lint, strict types, unit
   and cross-Worker tests, real-D1 migrations/cleanup, and dry-run builds.
 - Verify fresh local migration and local scheduled-handler workflows without
@@ -1094,8 +1314,8 @@ credential-safe evidence.
 **Budget:** 3–4 hours. **Prerequisite:** 12.1.
 
 - Document D1 creation/migrations, deployment order, secrets and bindings,
-  Cron propagation/UTC behavior, custom hostnames, observability, and safe smoke
-  tests for a new environment.
+  Cron propagation/UTC behavior, R2/Basin provisioning and retention, custom
+  hostnames, observability, and safe smoke tests for a new environment.
 - Document forward-only rollback strategy, D1 backup/recovery, signing-key
   staging, Jellyfin encryption-key loss/rotation limitations, and incident-safe
   log collection without printing credentials.
@@ -1123,8 +1343,8 @@ credential-safe evidence.
 - Publish evidence-based Jellyfin version/server requirements and the verified
   Sonos/MP3/AAC/FLAC/transcoding matrix. Do not guess unsupported versions.
 - Document onboarding, auth, browsing, playback, artwork/cache behavior,
-  D1/Cron, rate-limit, SSRF, and secret-rotation troubleshooting with
-  credential-safe diagnostics.
+  D1/Cron, Basin ingestion/query/lifecycle, rate-limit, SSRF, and
+  secret-rotation troubleshooting with credential-safe diagnostics.
 - Have a clean-context reviewer follow the docs through a fresh local setup and
   correct every reproducible omission. Run `pnpm check` and mark repository
   documentation complete.
@@ -1136,9 +1356,10 @@ authorization, a Cloudflare account/project, staging domains, D1, secrets,
 Sonos test registration, Jellyfin server, hardware, and media fixtures.
 
 - Provision or update staging in the documented order, apply migrations, deploy
-  all Workers, wait for Cron propagation, and run onboarding, auth, every browse
-  branch, search, artwork, playback formats, activity throttling, and a safe
-  accelerated cleanup fixture.
+  all Workers and the authorized Basin resources/bindings, wait for Cron and
+  analytics propagation, and run onboarding, auth, every browse branch, search,
+  artwork, playback formats, activity throttling, analytics non-interference,
+  and a safe accelerated cleanup fixture.
 - Capture only non-secret outcomes and repair only bounded defects. Update the
   runbook from actual evidence and rerun release checks.
 
@@ -1152,8 +1373,9 @@ explicit production authorization and all production identifiers/secrets.
 - Do not paste secrets, raw identifiers, user data, or server responses into
   task output. Stop at any mismatch that would expand scope or risk data.
 - Confirm Cron, onboarding, authenticated browse/search/artwork/playback,
-  monitoring, and rollback readiness. Mark Milestone 12 and the Sonofin 2.0
-  roadmap complete only after the production checks succeed.
+  Basin ingestion/retention/query health, monitoring, and rollback readiness.
+  Mark Milestone 12 and the Sonofin 2.0 roadmap complete only after the
+  production checks succeed.
 
 ## Explicitly unassigned backlog
 

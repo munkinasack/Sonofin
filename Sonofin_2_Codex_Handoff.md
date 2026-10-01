@@ -304,6 +304,9 @@ hardening and production deployment, Milestone 10A in
 to a dedicated private Worker called from the public `sonofin-smapi` gateway by
 a Service Binding. This later decision supersedes the initial SMAPI Worker
 breakdown below; small shared helpers and activity touches remain package code.
+Milestone 10B then adds optional Cloudflare Basin operational analytics across
+the final Worker topology. Basin is never a request-path, credential, playback,
+or cleanup source of truth.
 
 Start with three logical Workers:
 
@@ -582,7 +585,7 @@ Keep this package free of Sonos-specific XML formatting.
 
 ---
 
-> **Execution note for Milestones 7–12 and 10A:** The sections below describe broad
+> **Execution note for Milestones 7–12 and 10A–10B:** The sections below describe broad
 > product goals, not single Codex tasks. Do not assign an entire remaining
 > milestone to one run. Use
 > [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md) as
@@ -692,6 +695,46 @@ Make retention duration configurable.
 
 ---
 
+# Milestone 10B — Cloudflare Basin Operational Analytics
+
+Goal:
+
+Add optional, privacy-bounded operational analytics without changing Sonofin's
+functional behavior or making analytics an availability dependency.
+
+Capabilities appropriate against the current two-Worker implementation:
+
+- Basin Pipelines structured-stream ingestion through private Worker bindings
+- a versioned allow-listed event contract with no user, device, household,
+  server, media, URL, IP, credential, header, body, or query data
+- Pipelines SQL filtering/transformation to an isolated non-production R2 sink
+- delivery/error metrics and a tested off switch
+
+Capabilities to add after activity tracking, maintenance, and Service Binding
+method Workers establish the final topology:
+
+- complete, non-duplicated coverage across the gateway, method, onboarding,
+  artwork, and maintenance Workers
+- Apache Iceberg tables in Basin Catalog with explicit schema evolution,
+  compaction, snapshot expiration, deletion, and short retention
+- read-only, time-bounded Basin SQL queries for aggregate volume, outcomes,
+  latency, playback mode, cleanup results, rollout comparison, and ingestion
+  health
+- staging validation of privacy, non-interference, latency, cost, lifecycle,
+  rollback, and query usefulness before any production enablement
+
+Basin Pipelines currently requires Workers Paid, and Catalog requires R2 plus
+its account prerequisites. Catalog's current lack of support for non-default R2
+jurisdictions is a production adoption gate. Raw Cloudflare Logpush ingestion
+is not initial scope because its fields and retention need a separate privacy
+and duplication review.
+
+Use the dependency-ordered, Sol-Ultra-sized Tasks 10B.1–10B.7 in
+`Sonofin_2_Remaining_Milestones.md`; do not implement this milestone as one
+task and do not provision external resources without explicit authorization.
+
+---
+
 # Milestone 11 — Security Hardening
 
 Important because users can provide arbitrary Jellyfin URLs.
@@ -733,6 +776,7 @@ Create documentation for:
 - Worker Secrets
 - Worker bindings
 - Cron Trigger
+- Cloudflare Basin Pipelines, Catalog, SQL, R2, retention, and query access
 - local development
 - tests
 - Sonos SMAPI configuration
