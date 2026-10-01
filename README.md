@@ -27,7 +27,8 @@ to on-demand HLS AAC instead of progressive MP3.
 
 Task 7.9 real-system verification is in progress; Milestone 8 compatibility
 Tasks 8.5 and 8.8, the new authenticated-artwork Milestone 8A, Milestones
-9–12, and Service Bindings Milestone 10A remain future work.
+9–12, Service Bindings Milestone 10A, and optional Cloudflare Basin analytics
+Milestone 10B remain future work.
 Onboarding, root browsing, artist albums, global album tracks, playlist
 contents, paging past 100 artists, and all four Classic Search categories have
 passed in a real Sonos/Jellyfin session. Playback through the new media URI
@@ -42,6 +43,10 @@ dependency-ordered execution packets are in
 [`Sonofin_2_Remaining_Milestones.md`](Sonofin_2_Remaining_Milestones.md). Each
 packet is scoped for one task of at most five hours using `gpt-5.6-sol` with
 ultra reasoning; do not implement a whole remaining milestone in one run.
+The Basin assessment separates a small Pipelines foundation that can be pursued
+against the current Workers from Catalog, SQL, and complete event coverage that
+wait for the final Worker topology. Basin remains optional and cannot affect
+Sonofin request, credential, playback, or cleanup correctness.
 
 ## What Task 7.8d adds
 
